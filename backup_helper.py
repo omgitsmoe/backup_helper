@@ -184,6 +184,13 @@ def format_dataclass_fields(dc: dataclasses.dataclass,
     return "\n".join(builder)
 
 
+def get_device_identifier(path: str) -> int:
+    # st_dev
+    # Identifier of the device on which this file resides.
+    stat = os.stat(path)
+    return stat.st_dev
+
+
 @dataclasses.dataclass
 class VerifiedInfo:
     errors: int
@@ -419,6 +426,7 @@ class BackupHelper:
         self.get_source(source_key).hash()
 
     def hash_all(self):
+        # TODO multi-thread
         for src in self._sources.values():
             src.hash()
 
@@ -431,6 +439,7 @@ class BackupHelper:
         self.get_source(source_key).transfer_all()
 
     def transfer_all(self):
+        # TODO multi-thread
         for src in self._sources.values():
             src.transfer_all()
 
@@ -578,3 +587,5 @@ if __name__ == "__main__":
     parsed_args = parser.parse_args()
     if hasattr(parsed_args, 'func') and parsed_args.func:
         parsed_args.func(parsed_args)
+    else:
+        parser.print_usage()
