@@ -5,8 +5,14 @@ import dataclasses
 import json
 import contextlib
 import logging
+import time
 
-from typing import List, Optional, Dict, Any, Iterator, Union, cast, Callable
+from checksum_helper import checksum_helper as ch
+
+from typing import (
+    List, Optional, Dict, Any, Iterator, Union, cast, Callable, Set,
+    Iterator
+)
 
 # TODO
 logging.basicConfig(filename="backup_helper.log", level=logging.INFO)
@@ -47,8 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
         "--status-file", nargs=1, default="backup_status.json",
-        help="Path to the file that contains the state of the current backup "
-             "process")
+        help="Path to the JSON file that contains the state of the current backup "
+             "process. Log files will be saved in the same directory.")
 
     stage = subparsers.add_parser(
         "stage", parents=[parent_parser],
@@ -63,6 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument(
         "--hash-algorithm", type=str, default="sha512",
         help="Which hash algorithm to use when creating checksum files")
+    stage.add_argument(
+        "--single-hash", action="store_true",
+        help="Force files to be written as single hash (*.sha512, *.md5, etc.) "
+        "files. Does not support storing mtimes (default format is .cshd)!")
     stage.set_defaults(func=_cl_stage)
 
     add_target = subparsers.add_parser(
@@ -95,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     modify.add_argument(
         "key", type=str, nargs='?', help="Attribute to be modified")
     modify.add_argument(
-        "value", type=str, nargs='?', help="New value")
+        "value", type=str, nargs='*', help="New value")
     modify.add_argument(
         "--target", type=str,
         help="The target on the source that should be modified (path or alias)")
@@ -132,40 +142,51 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 class BackupHelperException(Exception):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class SourceAlreadyExists(BackupHelperException):
-    def __init__(self, source: str):
-        super().__init__()
+    def __init__(self, message: str, source: str):
+        super().__init__(message)
         self.source = source
 
 
 class TargetAlreadyExists(BackupHelperException):
-    def __init__(self, source: str, target: str):
-        super().__init__()
+    def __init__(self, message: str, source: str, target: str):
+        super().__init__(message)
         self.source = source
         self.target = target
 
 
 class AliasAlreadyExists(BackupHelperException):
-    def __init__(self, name: str):
-        super().__init__()
+    def __init__(self, message: str, name: str):
+        super().__init__(message)
         self.name = name
 
 
 class SourceNotFound(BackupHelperException):
-    def __init__(self, source: str):
-        super().__init__()
+    def __init__(self, message: str, source: str):
+        super().__init__(message)
         self.source = source
 
 
 class TargetNotFound(BackupHelperException):
-    def __init__(self, source: str, target: str):
-        super().__init__()
+    def __init__(self, message: str, source: str, target: str):
+        super().__init__(message)
         self.source = source
         self.target = target
+
+
+class HashError(BackupHelperException):
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+def sanitize_filename(s: str, replacement_char='_') -> str:
+    BANNED_CHARS = ('/', '<', '>', ':', '"', '\\', '|', '?', '*')
+    return "".join(c if c not in BANNED_CHARS else replacement_char
+                   for c in s.strip())
 
 
 def bool_from_str(s: str) -> bool:
@@ -199,13 +220,20 @@ class VerifiedInfo:
     log_file: str
 
 
-@dataclasses.dataclass
 class Target:
     path: str
     alias: Optional[str]
     transfered: bool
     verify: bool
     verified: Optional[VerifiedInfo]
+
+    def __init__(self, path: str, alias: Optional[str], transfered: bool,
+                 verify: bool, verified: Optional[VerifiedInfo]):
+        self.path = os.path.abspath(path)
+        self.alias = alias
+        self.transfered = transfered
+        self.verify = verify
+        self.verified = verified
 
     def to_json(self) -> Dict[Any, Any]:
         result = {"version": 1, "type": type(self).__name__}
@@ -249,6 +277,10 @@ class Target:
         else:
             raise ValueError(f"Unkown field '{field_name}'!")
 
+    def set_modifiable_field_multivalue(self, field_name: str, values: List[str]):
+        raise ValueError(
+            f"Cannot set multiple values for field '{field_name}'!")
+
 
 @dataclasses.dataclass
 class Source:
@@ -258,6 +290,27 @@ class Source:
     hash_file: Optional[str]
     hash_log_file: Optional[str]
     targets: Dict[str, Target]
+    force_single_hash: bool
+    # glob pattern, mutually exclusive
+    allowlist: List[str]
+    blocklist: List[str]
+
+    def __init__(self, path: str, alias: Optional[str], hash_algorithm: str,
+                 hash_file: Optional[str], hash_log_file: Optional[str],
+                 targets: Dict[str, Target], force_single_hash: bool = False,
+                 allowlist: Optional[List[str]] = None,
+                 blocklist: Optional[List[str]] = None):
+        self.path = os.path.abspath(path)
+        self.alias = alias
+        self.hash_algorithm = hash_algorithm
+        self.hash_file = hash_file
+        self.hash_log_file = hash_log_file
+        self.targets = targets
+        self.force_single_hash = force_single_hash
+        if allowlist is None:
+            self.allowlist = []
+        if blocklist is None:
+            self.blocklist = []
 
     def to_json(self) -> Dict[Any, Any]:
         result = {"version": 1, "type": type(self).__name__}
@@ -269,8 +322,13 @@ class Source:
             result[k] = v
 
         targets: List[Dict[str, Any]] = []
+        # targets contain both path as well as alias as keys, so we have to
+        # deduplicate them
+        seen: Set[str] = set()
         for target in self.targets.values():
-            targets.append(target.to_json())
+            if target.path not in seen:
+                targets.append(target.to_json())
+                seen.add(target.path)
 
         result["targets"] = targets
 
@@ -292,23 +350,82 @@ class Source:
             targets,
         )
 
+    def unique_targets(self) -> Iterator[Target]:
+        # targets contain both path as well as alias as keys, so we have to
+        # deduplicate them
+        seen: Set[str] = set()
+        for target in self.targets.values():
+            if target.path not in seen:
+                yield target
+                seen.add(target.path)
+
     def add_target(self, target: Target):
         if target.path in self.targets:
-            raise TargetAlreadyExists(self.path, target.path)
+            raise TargetAlreadyExists(
+                f"Target '{target.path}' already exists on source '{self.path}'!",
+                self.path, target.path)
         self.targets[target.path] = target
         if target.alias:
             if target.alias in self.targets:
-                raise AliasAlreadyExists(target.alias)
+                raise AliasAlreadyExists(
+                    f"Alias '{target.alias}' already exists on source '{self.path}'!",
+                    target.alias)
             self.targets[target.alias] = target
 
     def get_target(self, target_key: str) -> Target:
         try:
             return self.targets[target_key]
         except KeyError:
-            raise TargetNotFound(self.path, target_key)
+            raise TargetNotFound(
+                f"Target '{target_key}' not found on source '{self.path}'!",
+                self.path, target_key)
 
-    def hash(self):
-        raise NotImplementedError
+    def generate_hash_file_path(self) -> str:
+        hashed_directory_name = os.path.basename(self.path)
+        hash_file_name = os.path.join(
+            self.path,
+            f"{hashed_directory_name}_bh_{time.strftime('%Y-%m-%dT%H-%M-%S')}"
+            f".{self.hash_algorithm if self.force_single_hash else 'cshd'}"
+        )
+
+        return hash_file_name
+
+    def hash(self, log_directory: str = '.'):
+        log_path = os.path.join(
+            log_directory,
+            f"{sanitize_filename(self.path)}_inc_"
+            f"{time.strftime('%Y-%m-%dT%H-%M-%S')}.log")
+        c = ch.ChecksumHelper(
+            self.path,
+            # TODO a) does nothing
+            # b) log calls of checksum_helper get included in backup_helper log
+            log_path=log_path)
+        # always include all files in output hash
+        c.options["include_unchanged_files_incremental"] = True
+        # unlimited depth
+        c.options["discover_hash_files_depth"] = -1
+        # TODO provide arg for this
+        # or use for re-stage/hash command
+        c.options['incremental_skip_unchanged'] = False
+        c.options['incremental_collect_fstat'] = True
+
+        incremental = c.do_incremental_checksums(
+            self.hash_algorithm, single_hash=self.force_single_hash,
+            whitelist=self.allowlist if self.allowlist else None,
+            blacklist=self.blocklist if self.blocklist else None,
+            # whether to create checksums for files without checksums only
+            only_missing=False)
+
+        if incremental is not None:
+            incremental.relocate(self.generate_hash_file_path())
+            incremental.write()
+            self.hash_file = incremental.get_path()
+            self.hash_log_file = log_path
+            logger.info(
+                "Successfully created hash file for '%s', the log was saved "
+                "at '%s'!", self.hash_file, log_path)
+        else:
+            raise HashError("Failed to create cecksums!")
 
     def _transfer(self, target: Target):
         raise NotImplementedError
@@ -318,7 +435,7 @@ class Source:
         self._transfer(target)
 
     def transfer_all(self):
-        for target in self.targets.values():
+        for target in self.unique_targets():
             self._transfer(target)
 
     def status(self) -> str:
@@ -338,13 +455,30 @@ class Source:
             self.hash_file = value_str
         elif field_name == "hash_log_file":
             self.hash_log_file = value_str
+        elif field_name == "force_single_hash":
+            self.force_single_hash = bool_from_str(value_str)
+        elif field_name == "allowlist":
+            self.allowlist = [value_str]
+        elif field_name == "blocklist":
+            self.blocklist = [value_str]
         else:
             raise ValueError(f"Unkown field '{field_name}'!")
+
+    def set_modifiable_field_multivalue(self, field_name: str, values: List[str]):
+        if field_name == "allowlist":
+            self.allowlist = values
+        elif field_name == "blocklist":
+            self.blocklist = values
+        else:
+            raise ValueError(
+                f"Cannot set multiple values for field '{field_name}'!")
 
 
 class BackupHelper:
     def __init__(self, sources: List[Source]):
         self._sources = {}
+        # don't serialize this, will be set when loading, so the file can be moved!
+        self._working_dir = '.'
         for source in sources:
             self._sources[source.path] = source
             if source.alias:
@@ -355,7 +489,9 @@ class BackupHelper:
         if os.path.exists(path):
             with open(path, "r", encoding='utf-8') as f:
                 contents = f.read()
-            return cls.from_json(contents)
+            bh = cls.from_json(contents)
+            bh._working_dir = os.path.dirname(path)
+            return bh
         else:
             return cls([])
 
@@ -363,7 +499,9 @@ class BackupHelper:
         result = {"version": 1, "type": type(self).__name__}
 
         sources: List[Dict[str, Any]] = []
-        for source in self._sources.values():
+        # sources contain both path as well as alias as keys, so we have to
+        # deduplicate them
+        for source in self.unique_sources():
             sources.append(source.to_json())
 
         result["sources"] = sources
@@ -398,6 +536,15 @@ class BackupHelper:
         else:
             return json_object
 
+    def unique_sources(self) -> Iterator[Source]:
+        # sources contain both path as well as alias as keys, so we have to
+        # deduplicate them
+        seen: Set[str] = set()
+        for source in self._sources.values():
+            if source.path not in seen:
+                yield source
+                seen.add(source.path)
+
     def save_state(self, path: str):
         d = self.to_json()
         with open(path, "w", encoding='utf-8') as f:
@@ -405,19 +552,22 @@ class BackupHelper:
 
     def add_source(self, source: Source):
         if source.path in self._sources:
-            raise SourceAlreadyExists(source.path)
+            raise SourceAlreadyExists(
+                f"Source '{source.path}' already exists!", source.path)
 
         self._sources[source.path] = source
         if source.alias:
             if source.alias in self._sources:
-                raise AliasAlreadyExists(source.alias)
+                raise AliasAlreadyExists(
+                    f"Alias '{source.alias}' already exists!", source.alias)
             self._sources[source.alias] = source
 
     def get_source(self, source_key: str) -> Source:
         try:
             return self._sources[source_key]
         except KeyError:
-            raise SourceNotFound(source_key)
+            raise SourceNotFound(
+                f"Source '{source_key}' not found!", source_key)
 
     def add_target(self, source_key: str, target: Target):
         self.get_source(source_key).add_target(target)
@@ -427,8 +577,11 @@ class BackupHelper:
 
     def hash_all(self):
         # TODO multi-thread
-        for src in self._sources.values():
-            src.hash()
+        for src in self.unique_sources():
+            try:
+                src.hash()
+            except Exception:
+                logger.exception("Hashing '{src.path}' failed!")
 
     def transfer_from_source_to_target(
             self, source_key: str, transfer_key: str):
@@ -440,7 +593,8 @@ class BackupHelper:
 
     def transfer_all(self):
         # TODO multi-thread
-        for src in self._sources.values():
+        for src in self.unique_sources():
+            # TODO exc safe
             src.transfer_all()
 
     def status(self, source_key: str) -> str:
@@ -453,7 +607,7 @@ class BackupHelper:
 
     def status_all(self) -> str:
         builder = []
-        for source in self._sources.values():
+        for source in self.unique_sources():
             builder.append(f"--- Source: {source.path} ---")
             builder.append(source.status())
 
@@ -495,7 +649,8 @@ def load_backup_state_save_always(path: str) -> Iterator[BackupHelper]:
 def _cl_stage(args: argparse.Namespace):
     with load_backup_state_save_always(args.status_file) as bh:
         bh.add_source(Source(
-            args.path, args.alias, args.hash_algorithm, None, None, {}))
+            args.path, args.alias, args.hash_algorithm, None, None, {},
+            force_single_hash=args.single_hash))
         print("Staged:", args.path)
         if args.alias:
             print("    with alias:", args.alias)
@@ -565,7 +720,11 @@ def _cl_modify(args: argparse.Namespace):
         if args.key:
             if args.value:
                 try:
-                    target.set_modifiable_field(args.key, args.value)
+                    if len(args.value) > 1:
+                        target.set_modifiable_field_multivalue(
+                            args.key, args.value)
+                    else:
+                        target.set_modifiable_field(args.key, args.value[0])
                 except ValueError:
                     print("ERROR: Unkown field or could not convert value!")
                 else:
@@ -582,10 +741,14 @@ def _cl_modify(args: argparse.Namespace):
 # (to see which have same root drive)
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = build_parser()
     parsed_args = parser.parse_args()
     if hasattr(parsed_args, 'func') and parsed_args.func:
         parsed_args.func(parsed_args)
     else:
         parser.print_usage()
+
+
+if __name__ == "__main__":
+    main()
