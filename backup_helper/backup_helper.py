@@ -229,7 +229,7 @@ class Target:
 
     def __init__(self, path: str, alias: Optional[str], transfered: bool,
                  verify: bool, verified: Optional[VerifiedInfo]):
-        self.path = os.path.abspath(path)
+        self.path = os.path.normpath(os.path.abspath(path))
         self.alias = alias
         self.transfered = transfered
         self.verify = verify
@@ -300,7 +300,7 @@ class Source:
                  targets: Dict[str, Target], force_single_hash: bool = False,
                  allowlist: Optional[List[str]] = None,
                  blocklist: Optional[List[str]] = None):
-        self.path = os.path.abspath(path)
+        self.path = os.path.normpath(os.path.abspath(path))
         self.alias = alias
         self.hash_algorithm = hash_algorithm
         self.hash_file = hash_file
@@ -399,6 +399,7 @@ class Source:
             self.path,
             # TODO a) does nothing
             # b) log calls of checksum_helper get included in backup_helper log
+            # don't use rootlogger with basicConfig create own instead or w/e
             log_path=log_path)
         # always include all files in output hash
         c.options["include_unchanged_files_incremental"] = True
