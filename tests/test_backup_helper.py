@@ -377,3 +377,83 @@ def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified
     assert loaded_src1_target2.transfered is src1_target2.transfered
     assert loaded_src1_target2.verify is src1_target2.verify
     assert loaded_src1_target2.verified == src1_target2.verified
+
+
+def test_unique_iterator():
+    a = [
+        backup_helper.Target('test/1', 'test1', False, True, None),
+        backup_helper.Target('test/1', 'test1', False, True, None),
+        backup_helper.Target('test/2', 'test2', False, True, None),
+        backup_helper.Target('test/2', 'test2', False, True, None),
+        backup_helper.Target('test/3', 'test3', False, True, None),
+    ]
+
+    assert list(t.path for t in backup_helper.uniquer_iterator(a)) == [
+        a[0].path, a[2].path, a[4].path
+    ]
+
+
+def test_unique_sources(setup_backup_helper_2sources_2targets_1verified):
+    setup = setup_backup_helper_2sources_2targets_1verified
+
+    order = list(setup['bh'].unique_sources())
+    assert len(order) == 2
+    assert order[0] is setup['src1']
+    assert order[1] is setup['src2']
+
+
+def test_backup_helper_add_source():
+    bh = backup_helper.BackupHelper([])
+
+    src = backup_helper.Source(
+        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+    bh.add_source(src)
+
+    # added with path AND alias
+    assert bh._sources[os.path.join(os.path.abspath('.'), 'test', '1')] is src
+    assert bh._sources['test1'] is src
+
+
+def test_backup_helper_add_source_already_present():
+    bh = backup_helper.BackupHelper([])
+
+    src = backup_helper.Source(
+        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+    bh.add_source(src)
+    with pytest.raises(backup_helper.SourceAlreadyExists):
+        bh.add_source(src)
+
+
+def test_backup_helper_add_source_alias_already_present():
+    bh = backup_helper.BackupHelper([])
+
+    src = backup_helper.Source(
+        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+    bh.add_source(src)
+    with pytest.raises(backup_helper.AliasAlreadyExists):
+        bh.add_source(backup_helper.Source(
+            'test/2', 'test1', 'md5', None, None, {}, False, None, None))
+
+
+def test_backup_helper_get_source():
+    bh = backup_helper.BackupHelper([])
+    src = backup_helper.Source(
+        # os.sep as first item to creat absolute path
+        # then abspath to get a drive letter on windows
+        os.path.abspath(os.path.join(os.sep, 'test', '1')),
+        'test1', 'md5', None, None, {}, False, None, None)
+    bh.add_source(src)
+
+    assert bh.get_source(
+        os.path.abspath(os.path.join(os.sep, 'test', '1'))) is src
+    assert bh.get_source('test1') is src
+
+
+def test_backup_helper_get_source_not_found():
+    bh = backup_helper.BackupHelper([])
+    src = backup_helper.Source(
+        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+    bh.add_source(src)
+
+    with pytest.raises(backup_helper.SourceNotFound):
+        bh.get_source('foo')

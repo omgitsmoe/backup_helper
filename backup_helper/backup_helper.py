@@ -11,7 +11,7 @@ from checksum_helper import checksum_helper as ch
 
 from typing import (
     List, Optional, Dict, Any, Iterator, Union, cast, Callable, Set,
-    Iterator
+    Iterator, Iterable, overload
 )
 
 # TODO
@@ -212,6 +212,27 @@ def get_device_identifier(path: str) -> int:
     return stat.st_dev
 
 
+@overload
+def uniquer_iterator(to_iter: Iterable['Source']) -> Iterator['Source']:
+    ...
+
+
+@overload
+def uniquer_iterator(to_iter: Iterable['Target']) -> Iterator['Target']:
+    ...
+
+
+def uniquer_iterator(
+    to_iter: Iterable[Union['Source', 'Target']]) -> Iterator[
+        Union['Source', 'Target']]:
+
+    seen: Set[str] = set()
+    for item in to_iter:
+        if item.path not in seen:
+            yield item
+            seen.add(item.path)
+
+
 @dataclasses.dataclass
 class VerifiedInfo:
     errors: int
@@ -300,6 +321,7 @@ class Source:
                  targets: Dict[str, Target], force_single_hash: bool = False,
                  allowlist: Optional[List[str]] = None,
                  blocklist: Optional[List[str]] = None):
+        # TODO realpath, target too?
         self.path = os.path.normpath(os.path.abspath(path))
         self.alias = alias
         self.hash_algorithm = hash_algorithm
@@ -360,11 +382,7 @@ class Source:
     def unique_targets(self) -> Iterator[Target]:
         # targets contain both path as well as alias as keys, so we have to
         # deduplicate them
-        seen: Set[str] = set()
-        for target in self.targets.values():
-            if target.path not in seen:
-                yield target
-                seen.add(target.path)
+        yield from uniquer_iterator(self.targets.values())
 
     def add_target(self, target: Target):
         if target.path in self.targets:
@@ -547,11 +565,7 @@ class BackupHelper:
     def unique_sources(self) -> Iterator[Source]:
         # sources contain both path as well as alias as keys, so we have to
         # deduplicate them
-        seen: Set[str] = set()
-        for source in self._sources.values():
-            if source.path not in seen:
-                yield source
-                seen.add(source.path)
+        yield from uniquer_iterator(self._sources.values())
 
     def save_state(self, path: str):
         d = self.to_json()
@@ -577,12 +591,6 @@ class BackupHelper:
             raise SourceNotFound(
                 f"Source '{source_key}' not found!", source_key)
 
-    def add_target(self, source_key: str, target: Target):
-        self.get_source(source_key).add_target(target)
-
-    def hash(self, source_key: str):
-        self.get_source(source_key).hash()
-
     def hash_all(self):
         # TODO multi-thread
         for src in self.unique_sources():
@@ -590,14 +598,6 @@ class BackupHelper:
                 src.hash()
             except Exception:
                 logger.exception("Hashing '{src.path}' failed!")
-
-    def transfer_from_source_to_target(
-            self, source_key: str, transfer_key: str):
-        self.get_source(source_key).transfer(transfer_key)
-
-    def transfer_from_source(
-            self, source_key: str):
-        self.get_source(source_key).transfer_all()
 
     def transfer_all(self):
         # TODO multi-thread
@@ -666,8 +666,7 @@ def _cl_stage(args: argparse.Namespace):
 
 def _cl_add_target(args: argparse.Namespace):
     with load_backup_state_save_always(args.status_file) as bh:
-        bh.add_target(
-            args.source,
+        bh.get_source(args.source).add_target(
             Target(args.path, args.alias, False, not args.no_verify, None))
         print("Added target", args.path)
         if args.alias:
@@ -677,7 +676,7 @@ def _cl_add_target(args: argparse.Namespace):
 def _cl_hash(args: argparse.Namespace):
     with load_backup_state_save_always(args.status_file) as bh:
         if args.source:
-            bh.hash(args.source)
+            bh.get_source(args.source).hash()
         else:
             bh.hash_all()
 
@@ -686,9 +685,9 @@ def _cl_transfer(args: argparse.Namespace):
     with load_backup_state_save_always(args.status_file) as bh:
         if args.source:
             if args.target:
-                bh.transfer_from_source_to_target(args.source, args.target)
+                bh.get_source(args.source).transfer(args.target)
             else:
-                bh.transfer_from_source(args.source)
+                bh.get_source(args.source).transfer_all()
         else:
             bh.transfer_all()
 
