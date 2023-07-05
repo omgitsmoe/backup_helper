@@ -166,7 +166,8 @@ def test_backup_helper_only_save_unique_sources():
     assert d['sources'][1]['path'] == os.path.abspath('test/2')
 
 
-def test_backup_helper_to_json():
+@pytest.fixture
+def setup_backup_helper_2sources_2targets_1verified():
     bh = backup_helper.BackupHelper([])
     src1 = backup_helper.Source(
         'test/1', 'test1', 'md5', 'hashfile1', 'hashlog1', {})
@@ -181,6 +182,20 @@ def test_backup_helper_to_json():
         'test/2', 'test2', 'md5', 'hashfile2', 'hashlog2', {})
     bh.add_source(src1)
     bh.add_source(src2)
+
+    return {
+        'bh': bh, 'src1': src1, 'src2': src2,
+        'src1_target1': src1_target1, 'src1_target2': src1_target2
+    }
+
+
+def test_backup_helper_to_json(setup_backup_helper_2sources_2targets_1verified):
+    setup = setup_backup_helper_2sources_2targets_1verified
+    bh = setup['bh']
+    src1 = setup['src1']
+    src2 = setup['src2']
+    src1_target1 = setup['src1_target1']
+    src1_target2 = setup['src1_target2']
 
     d = bh.to_json()
     assert d == {
@@ -232,3 +247,133 @@ def test_backup_helper_to_json():
             },
         ],
     }
+
+
+# format string, so {{ to escape the {
+BH_WITH_2SOURCES_2TARGETS_1VERIFIED_JSON = """
+{{
+  "version": 1,
+  "type": "BackupHelper",
+  "sources": [
+    {{
+      "version": 1,
+      "type": "Source",
+      "path": "{workdir}{os_sep}test{os_sep}1",
+      "alias": "test1",
+      "hash_algorithm": "md5",
+      "hash_file": "hashfile1",
+      "hash_log_file": "hashlog1",
+      "force_single_hash": false,
+      "allowlist": [],
+      "blocklist": [],
+      "targets": [
+        {{
+          "version": 1,
+          "type": "Target",
+          "path": "{workdir}{os_sep}test{os_sep}target{os_sep}1",
+          "alias": "target1",
+          "transfered": false,
+          "verify": false,
+          "verified": null
+        }},
+        {{
+          "version": 1,
+          "type": "Target",
+          "path": "{workdir}{os_sep}test{os_sep}target{os_sep}2",
+          "alias": "target2",
+          "transfered": false,
+          "verify": true,
+          "verified": {{
+            "errors": 2,
+            "missing": 2,
+            "crc_errors": 0,
+            "log_file": "verifylog2"
+          }}
+        }}
+      ]
+    }},
+    {{
+      "version": 1,
+      "type": "Source",
+      "path": "{workdir}{os_sep}test{os_sep}2",
+      "alias": "test2",
+      "hash_algorithm": "md5",
+      "hash_file": "hashfile2",
+      "hash_log_file": "hashlog2",
+      "force_single_hash": true,
+      "allowlist": ["foo"],
+      "blocklist": ["bar", "baz"],
+      "targets": []
+    }}
+  ]
+}}
+"""
+
+
+def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified):
+    setup = setup_backup_helper_2sources_2targets_1verified
+    bh = setup['bh']
+    src1 = setup['src1']
+    src2 = setup['src2']
+    src2.allowlist.append('foo')
+    src2.blocklist.extend(['bar', 'baz'])
+    src2.force_single_hash = True
+    src1_target1 = setup['src1_target1']
+    src1_target2 = setup['src1_target2']
+
+    # TODO test loading where abspath saved in json is different
+    workdir = os.path.abspath('.')
+    json_str = BH_WITH_2SOURCES_2TARGETS_1VERIFIED_JSON.format(
+        workdir=workdir.replace("\\", "\\\\") if os.sep == '\\' else workdir,
+        os_sep="\\\\" if os.sep == '\\' else os.sep)
+    print(json_str)
+
+    loaded = backup_helper.BackupHelper.from_json(json_str)
+
+    # 2 sources but 2path 2alias
+    assert len(bh._sources) == 4
+
+    loaded_src1 = loaded._sources[src1.path]
+    # accessible using alias
+    assert loaded_src1 is loaded._sources[src1.alias]
+    assert loaded_src1.path == src1.path
+    assert loaded_src1.alias == src1.alias
+
+    assert loaded_src1.hash_algorithm == src1.hash_algorithm
+    assert loaded_src1.hash_file == src1.hash_file
+    assert loaded_src1.hash_log_file == src1.hash_log_file
+    assert loaded_src1.force_single_hash is src1.force_single_hash
+    assert loaded_src1.allowlist == src1.allowlist
+    assert loaded_src1.blocklist == src1.blocklist
+
+    loaded_src2 = loaded._sources[src2.path]
+    # accessible using alias
+    assert loaded_src2 is loaded._sources[src2.alias]
+    assert loaded_src2.path == src2.path
+    assert loaded_src2.alias == src2.alias
+
+    assert loaded_src2.hash_algorithm == src2.hash_algorithm
+    assert loaded_src2.hash_file == src2.hash_file
+    assert loaded_src2.hash_log_file == src2.hash_log_file
+    assert loaded_src2.force_single_hash is src2.force_single_hash
+    assert loaded_src2.allowlist == src2.allowlist
+    assert loaded_src2.blocklist == src2.blocklist
+
+    # targets
+    # 4targets -> 2path 2alias
+    assert len(loaded_src1.targets) == 4
+    loaded_src1_target1 = loaded_src1.targets[src1_target1.path]
+    assert loaded_src1_target1 is loaded_src1.targets[src1_target1.alias]
+    assert loaded_src1_target1.path == src1_target1.path
+    assert loaded_src1_target1.alias == src1_target1.alias
+    assert loaded_src1_target1.transfered is src1_target1.transfered
+    assert loaded_src1_target1.verify is src1_target1.verify
+    assert loaded_src1_target1.verified is src1_target1.verified
+
+    loaded_src1_target2 = loaded_src1.targets[src1_target2.path]
+    assert loaded_src1_target2 is loaded_src1.targets[src1_target2.alias]
+    assert loaded_src1_target2.path == src1_target2.path
+    assert loaded_src1_target2.alias == src1_target2.alias
+    assert loaded_src1_target2.transfered is src1_target2.transfered
+    assert loaded_src1_target2.verify is src1_target2.verify
+    assert loaded_src1_target2.verified == src1_target2.verified

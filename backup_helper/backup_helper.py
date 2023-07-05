@@ -309,8 +309,12 @@ class Source:
         self.force_single_hash = force_single_hash
         if allowlist is None:
             self.allowlist = []
+        else:
+            self.allowlist = allowlist
         if blocklist is None:
             self.blocklist = []
+        else:
+            self.blocklist = blocklist
 
     def to_json(self) -> Dict[Any, Any]:
         result = {"version": 1, "type": type(self).__name__}
@@ -348,6 +352,9 @@ class Source:
             json_object["hash_file"],
             json_object["hash_log_file"],
             targets,
+            json_object["force_single_hash"],
+            json_object["allowlist"],
+            json_object["blocklist"],
         )
 
     def unique_targets(self) -> Iterator[Target]:
