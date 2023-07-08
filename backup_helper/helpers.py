@@ -30,13 +30,6 @@ def format_dataclass_fields(
     return "\n".join(builder)
 
 
-def get_device_identifier(path: str) -> int:
-    # st_dev
-    # Identifier of the device on which this file resides.
-    stat = os.stat(path)
-    return stat.st_dev
-
-
 def unique_filename(path: str) -> str:
     if not os.path.exists(path):
         return path
