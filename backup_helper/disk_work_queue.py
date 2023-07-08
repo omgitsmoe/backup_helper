@@ -91,14 +91,14 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         worker_func: Callable[[WorkType], ResultType]
     ) -> Callable[[WrappedWork[WorkType]], None]:
         def wrapped(work: WrappedWork[WorkType]) -> None:
-            logger.info('start %s', work.work)
+            logger.debug('Starting work: %s', work.work)
             try:
                 result = worker_func(work.work)
             except Exception as e:
-                logger.warning('fail %s', work.work)
+                logger.warning('Failed work: %s: %s', work.work, str(e))
                 self._thread_done.put(WrappedResult(work, None, str(e)))
             else:
-                logger.info('success %s result %s', work.work, result)
+                logger.debug('Successfully completed work: %s', work.work)
                 self._thread_done.put(WrappedResult(work, result, None))
 
         return wrapped

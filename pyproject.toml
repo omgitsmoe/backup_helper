@@ -18,13 +18,16 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    'checksum_helper >=0.2.2,<0.3',
+]
 
 [project.urls]
 "Homepage" = "https://github.com/omgitsmoe/backup_helper"
 "Bug Tracker" = "https://github.com/omgitsmoe/backup_helper/issues"
 
 [project.scripts]
-checksum_helper = "backup_helper.backup_helper:main"
+backup_helper = "backup_helper.backup_helper:main"
 
 [project.optional-dependencies]
 test = [

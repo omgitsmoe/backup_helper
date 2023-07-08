@@ -135,17 +135,17 @@ class Source:
 
         return hash_file_name
 
-    def hash(self, log_directory: str = '.'):
+    def hash(self, log_directory: str = '.', force: bool = False):
+        if self.hash_file and not force:
+            return
+
         log_path = os.path.join(
             log_directory,
             f"{helpers.sanitize_filename(self.path)}_inc_"
             f"{time.strftime('%Y-%m-%dT%H-%M-%S')}.log")
-        c = ch.ChecksumHelper(
-            self.path,
-            # TODO a) does nothing
-            # b) log calls of checksum_helper get included in backup_helper log
-            # don't use rootlogger with basicConfig create own instead or w/e
-            log_path=log_path)
+        helpers.setup_thread_log_file(ch.logger, log_path)
+
+        c = ch.ChecksumHelper(self.path)
         # always include all files in output hash
         c.options["include_unchanged_files_incremental"] = True
         # unlimited depth
@@ -155,23 +155,27 @@ class Source:
         c.options['incremental_skip_unchanged'] = False
         c.options['incremental_collect_fstat'] = True
 
-        incremental = c.do_incremental_checksums(
-            self.hash_algorithm, single_hash=self.force_single_hash,
-            whitelist=self.allowlist if self.allowlist else None,
-            blacklist=self.blocklist if self.blocklist else None,
-            # whether to create checksums for files without checksums only
-            only_missing=False)
-
-        if incremental is not None:
-            incremental.relocate(self._generate_hash_file_path())
-            incremental.write()
-            self.hash_file = incremental.get_path()
-            self.hash_log_file = log_path
-            logger.info(
-                "Successfully created hash file for '%s', the log was saved "
-                "at '%s'!", self.hash_file, log_path)
+        try:
+            incremental = c.do_incremental_checksums(
+                self.hash_algorithm, single_hash=self.force_single_hash,
+                whitelist=self.allowlist if self.allowlist else None,
+                blacklist=self.blocklist if self.blocklist else None,
+                # whether to create checksums for files without checksums only
+                only_missing=False)
+        except Exception:
+            logger.exception("Failed to create checksums!")
+            raise HashError("Failed to create checksums!")
         else:
-            raise HashError("Failed to create cecksums!")
+            if incremental is not None:
+                incremental.relocate(self._generate_hash_file_path())
+                incremental.write()
+                self.hash_file = incremental.get_path()
+                self.hash_log_file = log_path
+                logger.info(
+                    "Successfully created hash file for '%s', the log was saved "
+                    "at '%s'!", self.hash_file, log_path)
+            else:
+                raise HashError("Empty hash file!")
 
     def _transfer(self, target: Target):
         # this needs to handle skipping files when permissions are missing
@@ -207,9 +211,15 @@ class Source:
         elif field_name == "force_single_hash":
             self.force_single_hash = helpers.bool_from_str(value_str)
         elif field_name == "allowlist":
-            self.allowlist = [value_str]
+            if not value_str:
+                self.allowlist = []
+            else:
+                self.allowlist = [value_str]
         elif field_name == "blocklist":
-            self.blocklist = [value_str]
+            if not value_str:
+                self.blocklist = []
+            else:
+                self.blocklist = [value_str]
         else:
             raise ValueError(f"Unkown field '{field_name}'!")
 

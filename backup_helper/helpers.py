@@ -1,7 +1,10 @@
 import os
 import dataclasses
+import logging
+import logging.handlers
+import threading
 
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Optional
 
 
 def sanitize_filename(s: str, replacement_char='_') -> str:
@@ -40,3 +43,35 @@ def unique_filename(path: str) -> str:
         inc += 1
 
     return os.path.join(base, f"{filename}_{inc}{ext}")
+
+
+class ThreadLogFilter(logging.Filter):
+    """
+    Only shows messages of thead with the same threadid.
+    Uses threading.get_ident by default.
+    """
+
+    def __init__(self, threadid: Optional[int] = None):
+        if threadid is None:
+            self._threadid = threading.get_ident()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.thread != self._threadid:
+            return False
+
+        return True
+
+
+def setup_thread_log_file(logger: logging.Logger, log_path: str):
+    handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=10485760,  # 10MiB
+        encoding="UTF-8")
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)-15s - %(name)-9s - %(levelname)-6s - %(message)s")
+    handler.setFormatter(formatter)
+    filter = ThreadLogFilter()
+    handler.addFilter(filter)
+
+    logger.addHandler(handler)

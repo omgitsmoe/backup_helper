@@ -19,9 +19,8 @@ from backup_helper.exceptions import (
 )
 from backup_helper.source import Source
 from backup_helper.target import Target, VerifiedInfo
+from backup_helper.disk_work_queue import DiskWorkQueue
 
-# TODO
-logging.basicConfig(filename="backup_helper.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -137,19 +136,31 @@ class BackupHelper:
             raise SourceNotFound(
                 f"Source '{source_key}' not found!", source_key)
 
+    @staticmethod
+    def _hash_source(source: Source) -> bool:
+        try:
+            source.hash()
+            return True
+        except Exception:
+            logger.exception("Hashing '{src.path}' failed!")
+            return False
+
     def hash_all(self):
-        # TODO multi-thread
-        # keep mutex-guarded dict of busy devices
-        # have work queue
-        # threads take off work
-        #   if device is busy -> requeue
-        #   else mark as busy and start work
-        # same procedure for transfer_all, just with 2 devices
-        for src in self.unique_sources():
-            try:
-                src.hash()
-            except Exception:
-                logger.exception("Hashing '{src.path}' failed!")
+        def do_hash(source: Source) -> Source:
+            source.hash()
+            return source
+
+        q = DiskWorkQueue(lambda s: [s.path], do_hash,
+                          list(self.unique_sources()))
+        success, errors = q.start_and_join_all()
+        if success:
+            logger.info(
+                "Successfully created checksums for %d source(s):\n%s",
+                len(success), "\n".join(f"{s.path}: {s.hash_file}" for s in success))
+        if errors:
+            logger.warning(
+                "Failed to create checksums for %d source(s):\n%s",
+                len(errors), "\n".join(f"{s.path}: {err}" for s, err in errors))
 
     def transfer_all(self):
         # TODO multi-thread
