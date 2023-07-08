@@ -388,7 +388,7 @@ def test_unique_iterator():
         backup_helper.Target('test/3', 'test3', False, True, None),
     ]
 
-    assert list(t.path for t in backup_helper.uniquer_iterator(a)) == [
+    assert list(t.path for t in backup_helper.unique_iterator(a)) == [
         a[0].path, a[2].path, a[4].path
     ]
 
@@ -457,3 +457,7 @@ def test_backup_helper_get_source_not_found():
 
     with pytest.raises(backup_helper.SourceNotFound):
         bh.get_source('foo')
+
+
+def test_backup_helper_hash_all(setup_backup_helper_2sources_2targets_1verified):
+    setup = setup_backup_helper_2sources_2targets_1verified
