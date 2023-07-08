@@ -1,7 +1,7 @@
 import os
 import dataclasses
 
-from typing import Callable
+from typing import Callable, TypeVar
 
 
 def sanitize_filename(s: str, replacement_char='_') -> str:
@@ -16,8 +16,12 @@ def bool_from_str(s: str) -> bool:
     return False
 
 
-def format_dataclass_fields(dc: dataclasses.dataclass,
-                            filter: Callable[[dataclasses.Field], bool]) -> str:
+T = TypeVar('T')
+
+
+def format_dataclass_fields(
+        dc: T,
+        filter: Callable[[dataclasses.Field], bool]) -> str:
     builder = []
     for field in dataclasses.fields(dc):
         if filter(field):

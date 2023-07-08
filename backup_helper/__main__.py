@@ -1,3 +1,3 @@
-from backup_helper import backup_helper
+from backup_helper import cli
 
-backup_helper.main()
+cli.main()
