@@ -16,6 +16,7 @@ class VerifiedInfo:
     log_file: str
 
 
+@dataclasses.dataclass
 class Target:
     path: str
     alias: Optional[str]

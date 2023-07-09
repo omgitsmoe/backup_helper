@@ -208,7 +208,10 @@ class Source:
             relpath_dir = os.path.relpath(path, start=self.path)
             ignored = []
             for name in names:
-                relpath = os.path.join(relpath_dir, name)
+                # so that relpath doesn't start with ./ or .\
+                relpath = os.path.join(
+                    '' if relpath_dir == '.' else relpath_dir, name)
+                print(relpath)
                 for pattern in self.blocklist:
                     if fnmatch.fnmatch(relpath, pattern):
                         ignored.append(name)
@@ -243,24 +246,27 @@ class Source:
                 self.path, target.path,
                 "\n".join(f"{err}: {src} -> {dst}" for src,
                           dst, err in e.args[0]))
+        else:
+            target.transfered = True
 
     @ overload
     def transfer(
-        self, target: str) -> None: ...
+        self, target: str, force: bool = False) -> None: ...
 
     @ overload
     def transfer(
-        self, target: Target) -> None: ...
+        self, target: Target, force: bool = False) -> None: ...
 
     def transfer(
         self,
         target: Union[str, Target],
+        force: bool = False,
     ) -> None:
         if isinstance(target, str):
             target = self.get_target(target)
-            self._transfer(target)
+            self._transfer(target, force)
         else:
-            self._transfer(target)
+            self._transfer(target, force)
 
     def transfer_queue_all(self, queue: Optional[TransferQueue] = None) -> TransferQueue:
         if queue is None:

@@ -453,3 +453,48 @@ def test_backup_helper_get_source_not_found():
 
 def test_backup_helper_hash_all(setup_backup_helper_2sources_2targets_1verified):
     setup = setup_backup_helper_2sources_2targets_1verified
+    bh = setup['bh']
+    bh.hash_all()
+    assert all(s.hash_file for s in bh.unique_sources())
+    assert all(s.hash_log_file for s in bh.unique_sources())
+
+
+def test_backup_helper_transfer_all(
+        setup_backup_helper_2sources_2targets_1verified,
+        monkeypatch):
+    setup = setup_backup_helper_2sources_2targets_1verified
+    bh = setup['bh']
+    setup['src1_target2'].transfered = False
+    setup['src1_target2'].verified = None
+    monkeypatch.setattr('shutil.copytree', lambda *args, **kwargs: True)
+    bh.transfer_all()
+    for src in bh.unique_sources():
+        assert all(t.transfered for t in src.unique_targets())
+
+
+def test_backup_helper_transfer_all_exception_does_not_abort(
+        setup_backup_helper_2sources_2targets_1verified,
+        monkeypatch):
+    setup = setup_backup_helper_2sources_2targets_1verified
+    bh = setup['bh']
+    setup['src1_target2'].transfered = False
+    setup['src1_target2'].verified = None
+    err_target_path = setup['src1_target2'].path
+
+    def raise_err(src, dst, *args, **kwargs):
+        if dst == err_target_path:
+            raise RuntimeError("don't abort")
+
+    monkeypatch.setattr('shutil.copytree', raise_err)
+    bh.transfer_all()
+    for src in bh.unique_sources():
+        assert setup['src1_target2'].transfered is False
+        assert all(
+            not t.transfered if t.path == err_target_path else t.transfered
+            for t in src.unique_targets())
+
+
+# TODO integration tests for
+# - hash
+# - transfer
+# - verify

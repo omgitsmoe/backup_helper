@@ -77,3 +77,11 @@ def test_set_modifiable_field_multivalue_unkown_incompatible_field():
     t = Target('test', None, None, None, None)
     with pytest.raises(ValueError):
         t.set_modifiable_field_multivalue('fsdlkfjsdsl', ['sdfs'])
+
+
+def test_modifiable_fields():
+    t = Target('test', 'testalias', False, True, None)
+    assert t.modifiable_fields() == f"""path = {os.path.abspath('test')}
+alias = testalias
+transfered = False
+verify = True"""
