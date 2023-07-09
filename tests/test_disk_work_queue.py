@@ -1,4 +1,5 @@
 import pytest
+import os
 
 from typing import List, Tuple, Dict
 
@@ -181,3 +182,11 @@ def test_start_and_join_all(setup_disk_work_queue_start_ready):
     assert q._running == 0
     assert len(q._finished) == len(q._work)
     assert all(not x for x in q._busy_devices.values())
+
+
+def test_get_device_identifier_uses_pardir_if_nonexistant():
+    # if a path hasn't been created yet get_device_identifier
+    # should walk up till it finds an existing dir
+    path = os.path.join(os.path.abspath('.'), 'sfdkls', 'tsrfsdfsdfshfhfdg')
+    expected = os.stat(os.path.abspath('.')).st_dev
+    assert dwq.get_device_identifier(path) == expected

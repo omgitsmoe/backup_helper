@@ -19,8 +19,15 @@ logger = logging.getLogger(__name__)
 def get_device_identifier(path: str) -> int:
     # st_dev
     # Identifier of the device on which this file resides.
-    stat = os.stat(path)
-    return stat.st_dev
+    curpath = path
+    while curpath:
+        try:
+            stat = os.stat(curpath)
+            return stat.st_dev
+        except FileNotFoundError:
+            curpath = os.path.dirname(os.path.realpath(curpath))
+
+    raise RuntimeError(f"Could not determine device of path {path}")
 
 
 WorkType = TypeVar('WorkType')
@@ -195,8 +202,11 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         Wait till all work items are finished
         :returns: Successful items, Error strings of failed items/worker_func
         """
+        self.start_ready_devices()
         while len(self._finished) < len(self._work):
-            self.start_ready_devices()
+            # since start_ready_devices can update self._finished this
+            # needs to happen first
             self._wait_till_one_thread_finished_and_update()
+            self.start_ready_devices()
 
         return self.get_finished_items()
