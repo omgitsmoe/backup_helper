@@ -167,7 +167,17 @@ class BackupHelper:
         for src in self.unique_sources():
             src.transfer_queue_all(queue)
 
-        queue.start_and_join_all()
+        success, errors = queue.start_and_join_all()
+        if success:
+            logger.info(
+                "Successfully transfered source(s) to %d target(s):\n%s",
+                len(success), "\n".join(f"{s.path} to {t.path}"
+                                        for s, t in success))
+        if errors:
+            logger.warning(
+                "Failed to transfer source(s) to %d target(s):\n%s",
+                len(errors), "\n".join(f"{err}: {s.path} to {t.path}"
+                                       for (s, t), err in errors))
 
     def status(self, source_key: str) -> str:
         try:
