@@ -12,7 +12,7 @@ description = "Helper tool for creating plain-file cold-storage archives includi
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["script", "verify", "backup", "archival", "bit-rot"]
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -27,7 +27,7 @@ dependencies = [
 "Bug Tracker" = "https://github.com/omgitsmoe/backup_helper/issues"
 
 [project.scripts]
-backup_helper = "backup_helper.backup_helper:main"
+backup_helper = "backup_helper.cli:main"
 
 [project.optional-dependencies]
 test = [

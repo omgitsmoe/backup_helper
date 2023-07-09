@@ -163,10 +163,11 @@ class BackupHelper:
                 len(errors), "\n".join(f"{s.path}: {err}" for s, err in errors))
 
     def transfer_all(self):
-        # TODO multi-thread
+        queue = Source.setup_transfer_queue()
         for src in self.unique_sources():
-            # TODO exc safe
-            src.transfer_all()
+            src.transfer_queue_all(queue)
+
+        queue.start_and_join_all()
 
     def status(self, source_key: str) -> str:
         try:
