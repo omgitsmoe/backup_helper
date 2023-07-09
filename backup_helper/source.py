@@ -32,14 +32,12 @@ class Source:
     hash_log_file: Optional[str]
     targets: Dict[str, Target]
     force_single_hash: bool
-    # glob pattern, mutually exclusive
-    allowlist: List[str]
+    # glob patterns
     blocklist: List[str]
 
     def __init__(self, path: str, alias: Optional[str], hash_algorithm: str,
                  hash_file: Optional[str], hash_log_file: Optional[str],
                  targets: Dict[str, Target], force_single_hash: bool = False,
-                 allowlist: Optional[List[str]] = None,
                  blocklist: Optional[List[str]] = None):
         # TODO realpath, target too?
         self.path = os.path.normpath(os.path.abspath(path))
@@ -49,10 +47,6 @@ class Source:
         self.hash_log_file = hash_log_file
         self.targets = targets
         self.force_single_hash = force_single_hash
-        if allowlist is None:
-            self.allowlist = []
-        else:
-            self.allowlist = allowlist
         if blocklist is None:
             self.blocklist = []
         else:
@@ -95,7 +89,6 @@ class Source:
             json_object["hash_log_file"],
             targets,
             json_object["force_single_hash"],
-            json_object["allowlist"],
             json_object["blocklist"],
         )
 
@@ -158,7 +151,6 @@ class Source:
         try:
             incremental = c.do_incremental_checksums(
                 self.hash_algorithm, single_hash=self.force_single_hash,
-                whitelist=self.allowlist if self.allowlist else None,
                 blacklist=self.blocklist if self.blocklist else None,
                 # whether to create checksums for files without checksums only
                 only_missing=False)
@@ -210,11 +202,6 @@ class Source:
             self.hash_log_file = value_str
         elif field_name == "force_single_hash":
             self.force_single_hash = helpers.bool_from_str(value_str)
-        elif field_name == "allowlist":
-            if not value_str:
-                self.allowlist = []
-            else:
-                self.allowlist = [value_str]
         elif field_name == "blocklist":
             if not value_str:
                 self.blocklist = []
@@ -224,9 +211,7 @@ class Source:
             raise ValueError(f"Unkown field '{field_name}'!")
 
     def set_modifiable_field_multivalue(self, field_name: str, values: List[str]):
-        if field_name == "allowlist":
-            self.allowlist = values
-        elif field_name == "blocklist":
+        if field_name == "blocklist":
             self.blocklist = values
         else:
             raise ValueError(

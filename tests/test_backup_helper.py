@@ -17,7 +17,6 @@ BH_WITH_ONE_SOURCE_JSON = """{
          "hash_file": null,
          "hash_log_file": null,
          "force_single_hash":false,
-         "allowlist":[],
          "blocklist":[],
          "targets":[]
       }
@@ -208,7 +207,6 @@ def test_backup_helper_to_json(setup_backup_helper_2sources_2targets_1verified):
                 'hash_file': src1.hash_file,
                 'hash_log_file': src1.hash_log_file,
                 'force_single_hash': src1.force_single_hash,
-                'allowlist': [],
                 'blocklist': [],
                 'targets': [
                     {
@@ -241,7 +239,6 @@ def test_backup_helper_to_json(setup_backup_helper_2sources_2targets_1verified):
                 'hash_file': src2.hash_file,
                 'hash_log_file': src2.hash_log_file,
                 'force_single_hash': src2.force_single_hash,
-                'allowlist': [],
                 'blocklist': [],
                 'targets': [],
             },
@@ -264,7 +261,6 @@ BH_WITH_2SOURCES_2TARGETS_1VERIFIED_JSON = """
       "hash_file": "hashfile1",
       "hash_log_file": "hashlog1",
       "force_single_hash": false,
-      "allowlist": [],
       "blocklist": [],
       "targets": [
         {{
@@ -301,7 +297,6 @@ BH_WITH_2SOURCES_2TARGETS_1VERIFIED_JSON = """
       "hash_file": "hashfile2",
       "hash_log_file": "hashlog2",
       "force_single_hash": true,
-      "allowlist": ["foo"],
       "blocklist": ["bar", "baz"],
       "targets": []
     }}
@@ -315,7 +310,6 @@ def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified
     bh = setup['bh']
     src1 = setup['src1']
     src2 = setup['src2']
-    src2.allowlist.append('foo')
     src2.blocklist.extend(['bar', 'baz'])
     src2.force_single_hash = True
     src1_target1 = setup['src1_target1']
@@ -343,7 +337,6 @@ def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified
     assert loaded_src1.hash_file == src1.hash_file
     assert loaded_src1.hash_log_file == src1.hash_log_file
     assert loaded_src1.force_single_hash is src1.force_single_hash
-    assert loaded_src1.allowlist == src1.allowlist
     assert loaded_src1.blocklist == src1.blocklist
 
     loaded_src2 = loaded._sources[src2.path]
@@ -356,7 +349,6 @@ def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified
     assert loaded_src2.hash_file == src2.hash_file
     assert loaded_src2.hash_log_file == src2.hash_log_file
     assert loaded_src2.force_single_hash is src2.force_single_hash
-    assert loaded_src2.allowlist == src2.allowlist
     assert loaded_src2.blocklist == src2.blocklist
 
     # targets
@@ -406,7 +398,7 @@ def test_backup_helper_add_source():
     bh = backup_helper.BackupHelper([])
 
     src = backup_helper.Source(
-        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+        'test/1', 'test1', 'md5', None, None, {}, False, None)
     bh.add_source(src)
 
     # added with path AND alias
@@ -418,7 +410,7 @@ def test_backup_helper_add_source_already_present():
     bh = backup_helper.BackupHelper([])
 
     src = backup_helper.Source(
-        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+        'test/1', 'test1', 'md5', None, None, {}, False, None)
     bh.add_source(src)
     with pytest.raises(backup_helper.SourceAlreadyExists):
         bh.add_source(src)
@@ -428,11 +420,11 @@ def test_backup_helper_add_source_alias_already_present():
     bh = backup_helper.BackupHelper([])
 
     src = backup_helper.Source(
-        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+        'test/1', 'test1', 'md5', None, None, {}, False, None)
     bh.add_source(src)
     with pytest.raises(backup_helper.AliasAlreadyExists):
         bh.add_source(backup_helper.Source(
-            'test/2', 'test1', 'md5', None, None, {}, False, None, None))
+            'test/2', 'test1', 'md5', None, None, {}, False, None))
 
 
 def test_backup_helper_get_source():
@@ -441,7 +433,7 @@ def test_backup_helper_get_source():
         # os.sep as first item to creat absolute path
         # then abspath to get a drive letter on windows
         os.path.abspath(os.path.join(os.sep, 'test', '1')),
-        'test1', 'md5', None, None, {}, False, None, None)
+        'test1', 'md5', None, None, {}, False, None)
     bh.add_source(src)
 
     assert bh.get_source(
@@ -452,7 +444,7 @@ def test_backup_helper_get_source():
 def test_backup_helper_get_source_not_found():
     bh = backup_helper.BackupHelper([])
     src = backup_helper.Source(
-        'test/1', 'test1', 'md5', None, None, {}, False, None, None)
+        'test/1', 'test1', 'md5', None, None, {}, False, None)
     bh.add_source(src)
 
     with pytest.raises(backup_helper.SourceNotFound):
