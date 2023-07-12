@@ -1,5 +1,10 @@
 import pytest
 import os
+import threading
+
+from unittest.mock import patch, MagicMock
+
+from checksum_helper.checksum_helper import ChecksumHelperData
 
 from backup_helper.source import Source
 from backup_helper.target import Target, VerifiedInfo
@@ -379,8 +384,206 @@ def test_transfer_blocklist(monkeypatch, setup_source_2targets_1verified):
     ) == ['foo/bar', 'bla/barbla']
 
 
-# TODO
-# - hash
-#   - one log per thread in log_directory
-#   - hash file name
-#   - hash file contents
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.ChecksumHelper.do_incremental_checksums',
+       return_value=None)
+def test_hash_empty_hash(
+    do_incremental_checksums,
+    setup_thread_log_file,
+    setup_source_2targets_1verified
+):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.hash_file = None
+    with pytest.raises(exc.HashError, match='Empty hash.*'):
+        src1.hash()
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.ChecksumHelper.do_incremental_checksums',
+       side_effect=RuntimeError("test"))
+def test_hash_any_exception(
+    do_incremental_checksums,
+    setup_thread_log_file,
+    setup_source_2targets_1verified
+):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.hash_file = None
+    with pytest.raises(exc.HashError, match='Failed.*checksums.*'):
+        src1.hash()
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.ChecksumHelper')
+def test_hash_checksum_helper_options(
+    ChecksumHelper,
+    setup_thread_log_file,
+    setup_source_2targets_1verified
+):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.hash_file = None
+
+    instance = ChecksumHelper.return_value
+    d = {}
+    instance.options = d
+    src1.hash()
+    assert d == {
+        'include_unchanged_files_incremental': True,
+        'discover_hash_files_depth': -1,
+        'incremental_skip_unchanged': False,
+        'incremental_collect_fstat': True,
+    }
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.ChecksumHelper.do_incremental_checksums')
+def test_hash_checksum_helper_params(
+    do_incremental_checksums,
+    setup_thread_log_file,
+    setup_source_2targets_1verified
+):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.blocklist = ['foo', 'bar']
+    src1.hash_file = None
+
+    src1.hash()
+
+    do_incremental_checksums.assert_called_once_with(
+        'md5', single_hash=False, blacklist=['foo', 'bar'], only_missing=False)
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.logger')
+@patch('backup_helper.source.ch.ChecksumHelper')
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foopath'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_hash_checksum_helper_calls(
+    patched_strftime,
+    patched_sanitize,
+    ChecksumHelper,
+    ch_logger,
+    setup_thread_log_file,
+    setup_source_2targets_1verified
+):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.blocklist = ['foo', 'bar']
+    src1.hash_file = None
+    src1.hash_log_file = None
+
+    instance = ChecksumHelper.return_value
+    inc = instance.do_incremental_checksums.return_value
+    inc.get_path.return_value = 'foo_hf_path'
+    src1.hash('foodir')
+
+    hf_path = os.path.abspath(os.path.join('test', '1', '1_bh_footime.cshd'))
+    inc.relocate.assert_called_once_with(hf_path)
+    inc.write.assert_called_once()
+
+    log_path = os.path.join(
+        'foodir', 'foopath_inc_footime.log')
+    setup_thread_log_file.assert_called_once_with(
+        ch_logger, log_path)
+
+    assert src1.hash_file == 'foo_hf_path'
+    assert src1.hash_log_file == log_path
+
+
+def setup_src_to_hash(tmp_path, dir_prefix: str, **kwargs):
+    hash_dir = tmp_path / dir_prefix
+    hash_dir.mkdir()
+    hash_log_dir = tmp_path / f'{dir_prefix}_logs'
+    hash_log_dir.mkdir()
+    src1 = Source(hash_dir, f'{dir_prefix}_alias',
+                  'md5', None, None, {}, **kwargs)
+
+    file_hashes = []
+
+    file1 = hash_dir / f'{dir_prefix}_foo.txt'
+    with open(file1, 'w') as f:
+        f.write('foo')
+
+    file2 = hash_dir / f'{dir_prefix}_xer.txt'
+    with open(file2, 'w') as f:
+        f.write('xer')
+
+    hash_sub_dir = hash_dir / f'{dir_prefix}_sub'
+    hash_sub_dir.mkdir()
+
+    file3 = hash_sub_dir / 'bar'
+    with open(file3, 'w') as f:
+        f.write('sub_bar')
+
+    file_hashes.extend([
+        (file1, 'acbd18db4cc2f85cedef654fccc4a4d8'),
+        (file2, 'faa709c5035aea00f9efb278f2ad5df0'),
+        (file3, '0b62138143523bb6cbd88f937cb1616a'),
+    ])
+
+    return hash_dir, hash_log_dir, src1, file_hashes
+
+
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foopath'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_hash_isolated_log_in_threads(patched_strftime, patched_sanitize, tmp_path):
+    tmp = tmp_path
+    thread1_dir, thread1_log_dir, src1, _ = setup_src_to_hash(tmp, 'thread1')
+    thread2_dir, thread2_log_dir, src2, _ = setup_src_to_hash(tmp, 'thread2')
+
+    def in_thread(log_dir, src):
+        src.hash(log_directory=log_dir)
+
+    t1 = threading.Thread(target=in_thread, args=[thread1_log_dir, src1])
+    t2 = threading.Thread(target=in_thread, args=[thread2_log_dir, src2])
+
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # log of each thread only contain the contents of what was done in that thread
+    with open(thread1_log_dir / 'foopath_inc_footime.log') as f:
+        assert [[s for s in l.split()[1:] if s != '-']
+                for l in f.readlines()] == [
+            ['Checksum_Helper', 'INFO', 'Wrote', os.path.join(
+                thread1_dir, 'thread1_bh_footime.cshd')],
+        ]
+
+    with open(thread2_log_dir / 'foopath_inc_footime.log') as f:
+        assert [[s for s in l.split()[1:] if s != '-']
+                for l in f.readlines()] == [
+            ['Checksum_Helper', 'INFO', 'Wrote', os.path.join(
+                thread2_dir, 'thread2_bh_footime.cshd')],
+        ]
+
+
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foopath'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_hash_file_contents(patched_strftime, patched_sanitize, tmp_path):
+    tmp = tmp_path
+    hash_dir, _, src1, file_hashes = setup_src_to_hash(tmp, 'test1')
+
+    src1.hash()
+
+    hf = ChecksumHelperData(None, hash_dir / 'test1_bh_footime.cshd')
+    hf.read()
+    assert len(hf) == len(file_hashes)
+    for fpath, hash in file_hashes:
+        assert hf.get_entry(fpath).hex_hash() == hash
+
+
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foopath'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_hash_thread_log_handler_removed_after(patched_strftime, patched_sanitize, tmp_path):
+    tmp = tmp_path
+    hash_dir, hash_log_dir, src1, file_hashes = setup_src_to_hash(tmp, 'test1')
+    from backup_helper import source as src_module
+
+    src1.hash(log_directory=hash_log_dir)
+
+    src_module.ch.logger.info("Should not be in the log file below!")
+
+    with open(hash_log_dir / 'foopath_inc_footime.log') as f:
+        assert [[s for s in l.split()[1:] if s != '-']
+                for l in f.readlines()] == [
+            ['Checksum_Helper', 'INFO', 'Wrote', os.path.join(
+                hash_dir, 'test1_bh_footime.cshd')],
+        ]

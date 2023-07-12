@@ -3,8 +3,9 @@ import dataclasses
 import logging
 import logging.handlers
 import threading
+import contextlib
 
-from typing import Callable, TypeVar, Optional
+from typing import Callable, TypeVar, Optional, Iterator
 
 
 def sanitize_filename(s: str, replacement_char='_') -> str:
@@ -62,7 +63,7 @@ class ThreadLogFilter(logging.Filter):
         return True
 
 
-def setup_thread_log_file(logger: logging.Logger, log_path: str):
+def setup_thread_log_file(logger: logging.Logger, log_path: str) -> logging.Handler:
     handler = logging.handlers.RotatingFileHandler(
         log_path,
         maxBytes=10485760,  # 10MiB
@@ -75,3 +76,13 @@ def setup_thread_log_file(logger: logging.Logger, log_path: str):
     handler.addFilter(filter)
 
     logger.addHandler(handler)
+
+    return handler
+
+
+@contextlib.contextmanager
+def setup_thread_log_file_autoremove(
+        logger: logging.Logger, log_path: str) -> Iterator[logging.Handler]:
+    handler = setup_thread_log_file(logger, log_path)
+    yield handler
+    logger.removeHandler(handler)

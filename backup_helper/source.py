@@ -146,38 +146,39 @@ class Source:
             log_directory,
             f"{helpers.sanitize_filename(self.path)}_inc_"
             f"{time.strftime('%Y-%m-%dT%H-%M-%S')}.log")
-        helpers.setup_thread_log_file(ch.logger, log_path)
 
-        c = ch.ChecksumHelper(self.path)
-        # always include all files in output hash
-        c.options["include_unchanged_files_incremental"] = True
-        # unlimited depth
-        c.options["discover_hash_files_depth"] = -1
-        # TODO provide arg for this
-        # or use for re-stage/hash command
-        c.options['incremental_skip_unchanged'] = False
-        c.options['incremental_collect_fstat'] = True
+        # auto removes logging handler once done
+        with helpers.setup_thread_log_file_autoremove(ch.logger, log_path):
+            c = ch.ChecksumHelper(self.path)
+            # always include all files in output hash
+            c.options["include_unchanged_files_incremental"] = True
+            # unlimited depth
+            c.options["discover_hash_files_depth"] = -1
+            # TODO provide arg for this
+            # or use for re-stage/hash command
+            c.options['incremental_skip_unchanged'] = False
+            c.options['incremental_collect_fstat'] = True
 
-        try:
-            incremental = c.do_incremental_checksums(
-                self.hash_algorithm, single_hash=self.force_single_hash,
-                blacklist=self.blocklist if self.blocklist else None,
-                # whether to create checksums for files without checksums only
-                only_missing=False)
-        except Exception:
-            logger.exception("Failed to create checksums!")
-            raise HashError("Failed to create checksums!")
-        else:
-            if incremental is not None:
-                incremental.relocate(self._generate_hash_file_path())
-                incremental.write()
-                self.hash_file = incremental.get_path()
-                self.hash_log_file = log_path
-                logger.info(
-                    "Successfully created hash file for '%s', the log was saved "
-                    "at '%s'!", self.hash_file, log_path)
+            try:
+                incremental = c.do_incremental_checksums(
+                    self.hash_algorithm, single_hash=self.force_single_hash,
+                    blacklist=self.blocklist if self.blocklist else None,
+                    # whether to create checksums for files without checksums only
+                    only_missing=False)
+            except Exception:
+                logger.exception("Failed to create checksums!")
+                raise HashError("Failed to create checksums!")
             else:
-                raise HashError("Empty hash file!")
+                if incremental is not None:
+                    incremental.relocate(self._generate_hash_file_path())
+                    incremental.write()
+                    self.hash_file = incremental.get_path()
+                    self.hash_log_file = log_path
+                    logger.info(
+                        "Successfully created hash file for '%s', the log was saved "
+                        "at '%s'!", self.hash_file, log_path)
+                else:
+                    raise HashError("Empty hash file!")
 
     @staticmethod
     def setup_transfer_queue() -> TransferQueue:
