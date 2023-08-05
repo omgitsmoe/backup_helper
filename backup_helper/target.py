@@ -1,15 +1,23 @@
 import os
 import dataclasses
+import logging
+import time
 
 from typing import (
     Optional, List, Any, Iterator, Dict
 )
 
+import checksum_helper.checksum_helper as checksum_helper
+
 from backup_helper import helpers
+
+
+logger = logging.getLogger(__name__)
 
 
 @ dataclasses.dataclass
 class VerifiedInfo:
+    checked: int
     errors: int
     missing: int
     crc_errors: int
@@ -58,6 +66,45 @@ class Target:
             json_object["verify"],
             verified,
         )
+
+    def verify_from(
+        self,
+        hash_file_name: str,
+        log_directory: str = '.',
+        force: bool = False
+    ) -> Optional[VerifiedInfo]:
+        if not self.verify and not force:
+            logger.info(
+                "Skipping verification of %s, since `verify` is off!",
+                self.path)
+            return None
+        if not self.transfered:
+            logger.info(
+                "Target %s has not been transfered yet! Nothing to verify!",
+                self.path)
+            return None
+
+        log_path = os.path.join(
+            log_directory,
+            f"{helpers.sanitize_filename(hash_file_name)}_vf_"
+            f"{time.strftime('%Y-%m-%dT%H-%M-%S')}.log")
+
+        with helpers.setup_thread_log_file_autoremove(
+                checksum_helper.logger, log_path):
+            cshd = checksum_helper.ChecksumHelperData(
+                None, os.path.join(self.path, hash_file_name))
+            cshd.read()
+            crc_errors, missing, matches = cshd.verify()
+            checksum_helper.log_summary(
+                len(cshd.entries),
+                [(cshd.root_dir, missing)],
+                [(cshd.root_dir, crc_errors)])
+
+            self.verified = VerifiedInfo(
+                len(cshd.entries), len(crc_errors) + len(missing),
+                len(missing), len(crc_errors), log_path)
+
+            return self.verified
 
     def modifiable_fields(self) -> str:
         return helpers.format_dataclass_fields(self, lambda f: f.name != 'verified')

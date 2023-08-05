@@ -12,7 +12,6 @@ from typing import (
     Callable
 )
 
-from backup_helper import backup_helper
 from backup_helper import helpers
 from backup_helper.exceptions import (
     TargetNotFound, TargetAlreadyExists, AliasAlreadyExists,
@@ -105,7 +104,7 @@ class Source:
     def unique_targets(self) -> Iterator[Target]:
         # targets contain both path as well as alias as keys, so we have to
         # deduplicate them
-        yield from backup_helper.unique_iterator(self.targets.values())
+        yield from helpers.unique_iterator(self.targets.values())
 
     def add_target(self, target: Target):
         if target.path in self.targets:

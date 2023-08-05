@@ -5,7 +5,7 @@ import logging.handlers
 import threading
 import contextlib
 
-from typing import Callable, TypeVar, Optional, Iterator
+from typing import Callable, TypeVar, Optional, Iterator, Iterable, Set
 
 
 def sanitize_filename(s: str, replacement_char='_') -> str:
@@ -86,3 +86,13 @@ def setup_thread_log_file_autoremove(
     handler = setup_thread_log_file(logger, log_path)
     yield handler
     logger.removeHandler(handler)
+
+
+def unique_iterator(to_iter: Iterable[T], key: str = 'path') -> Iterator[T]:
+
+    seen: Set[str] = set()
+    for item in to_iter:
+        ident = getattr(item, key)
+        if ident not in seen:
+            yield item
+            seen.add(ident)

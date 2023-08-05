@@ -1,6 +1,8 @@
 import pytest
 import os
 
+from unittest.mock import patch, MagicMock
+
 from backup_helper.target import Target, VerifiedInfo
 
 
@@ -10,11 +12,11 @@ from backup_helper.target import Target, VerifiedInfo
         "verify": True, "verified": None,
     }),
     ('/target2', None, True, True,
-     VerifiedInfo(errors=2, missing=1, crc_errors=1, log_file='/log2'),
+     VerifiedInfo(checked=4, errors=2, missing=1, crc_errors=1, log_file='/log2'),
      {
          "path": os.path.abspath("/target2"), "alias": None, "transfered": True,
          "verify": True,
-         "verified": {"errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
+         "verified": {"checked": 4, "errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
      }),
 ])
 def test_to_json(path, alias, transfered, verify, verified, expected):
@@ -34,10 +36,10 @@ def test_to_json(path, alias, transfered, verify, verified, expected):
     ({
         "path": os.path.abspath("/target2"), "alias": None, "transfered": True,
         "verify": True,
-        "verified": {"errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
+        "verified": {"checked": 4, "errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
     },
         Target('/target2', None, True, True,
-               VerifiedInfo(errors=2, missing=1, crc_errors=1, log_file='/log2')),
+               VerifiedInfo(checked=4, errors=2, missing=1, crc_errors=1, log_file='/log2')),
     ),
 ])
 def test_from_json(json_obj, expected):
@@ -85,3 +87,66 @@ def test_modifiable_fields():
 alias = testalias
 transfered = False
 verify = True"""
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.logger')
+@patch('checksum_helper.checksum_helper.ChecksumHelperData')
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foohashname'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_target_verify_checks_flag(
+    patched_strftime,
+    patched_sanitize,
+    ChecksumHelperData,
+    ch_logger,
+    setup_thread_log_file,
+    caplog
+):
+    target = Target('foodir', 'fooalias', False, False, None)
+    instance = ChecksumHelperData.return_value
+    log_name = os.path.join('.', 'foohashname_vf_footime.log')
+    expected = VerifiedInfo(5, 2, 1, 1, log_name)
+    instance.verify.return_value = (
+        [('baz', 'crc')],
+        ['missing'],
+        ['matches', 'foo', 'bar'])
+    instance.entries = [1, 2, 3, 4, 5]
+
+    assert target.verify_from('foo:hashname') is None
+    assert target.verify_from('foo:hashname', force=True) is None
+    target.transfered = True
+    assert target.verify_from('foo:hashname', force=True) == expected
+
+    instance.read.assert_called_once()
+    instance.verify.assert_called_once()
+
+
+@patch('backup_helper.source.helpers.setup_thread_log_file')
+@patch('backup_helper.source.ch.logger')
+@patch('checksum_helper.checksum_helper.ChecksumHelperData')
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foohashname'})
+@patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
+def test_target_verify_checks_flag(
+    patched_strftime,
+    patched_sanitize,
+    ChecksumHelperData,
+    ch_logger,
+    setup_thread_log_file,
+    caplog
+):
+    target = Target('foodir', 'fooalias', True, True, None)
+    instance = ChecksumHelperData.return_value
+    log_name = os.path.join('.', 'foohashname_vf_footime.log')
+    expected = VerifiedInfo(5, 2, 1, 1, log_name)
+    instance.verify.return_value = (
+        [('baz', 'crc')],
+        ['missing'],
+        ['matches', 'foo', 'bar'])
+    instance.entries = [1, 2, 3, 4, 5]
+
+    assert target.verify_from('foo:hashname') == expected
+
+    instance.read.assert_called_once()
+    instance.verify.assert_called_once()
+    setup_thread_log_file.assert_called_once_with(
+        ch_logger, log_name)

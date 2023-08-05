@@ -1,6 +1,7 @@
 import pytest
 import os
 
+from backup_helper import backup_helper
 from backup_helper import helpers
 
 
@@ -37,3 +38,32 @@ def test_sanitize_filename(fn: str, existing: int, expected: str, monkeypatch):
     norm = os.path.normpath(fn)
     norm_expected = os.path.normpath(expected)
     assert helpers.unique_filename(norm) == norm_expected
+
+
+def test_unique_iterator():
+    a = [
+        backup_helper.Target('test/1', 'test1', False, True, None),
+        backup_helper.Target('test/1', 'test1', False, True, None),
+        backup_helper.Target('test/2', 'test2', False, True, None),
+        backup_helper.Target('test/2', 'test2', False, True, None),
+        backup_helper.Target('test/3', 'test3', False, True, None),
+    ]
+
+    assert list(t.path for t in helpers.unique_iterator(a)) == [
+        a[0].path, a[2].path, a[4].path
+    ]
+
+
+def test_unique_iterator_custom_key():
+    from types import SimpleNamespace
+    a = [
+        SimpleNamespace(foo=0, bar=1, baz=2),
+        SimpleNamespace(foo=0, bar=2, baz=2),
+        SimpleNamespace(foo=0, bar=2, baz=2),
+        SimpleNamespace(foo=0, bar=1, baz=2),
+        SimpleNamespace(foo=0, bar=3, baz=2),
+    ]
+
+    assert list(t for t in helpers.unique_iterator(a, key='bar')) == [
+        a[0], a[1], a[4],
+    ]

@@ -8,7 +8,7 @@ import time
 
 from typing import (
     List, Optional, Dict, Any, Union, cast, Callable, Set,
-    Iterator, Iterable, overload, TYPE_CHECKING
+    Iterator, Iterable, TYPE_CHECKING
 )
 
 from backup_helper import helpers
@@ -22,27 +22,6 @@ from backup_helper.target import Target, VerifiedInfo
 from backup_helper.disk_work_queue import DiskWorkQueue
 
 logger = logging.getLogger(__name__)
-
-
-@ overload
-def unique_iterator(to_iter: Iterable['Source']) -> Iterator['Source']:
-    ...
-
-
-@ overload
-def unique_iterator(to_iter: Iterable['Target']) -> Iterator['Target']:
-    ...
-
-
-def unique_iterator(
-    to_iter: Iterable[Union['Source', 'Target']]) -> Iterator[
-        Union['Source', 'Target']]:
-
-    seen: Set[str] = set()
-    for item in to_iter:
-        if item.path not in seen:
-            yield item
-            seen.add(item.path)
 
 
 class BackupHelper:
@@ -110,7 +89,7 @@ class BackupHelper:
     def unique_sources(self) -> Iterator[Source]:
         # sources contain both path as well as alias as keys, so we have to
         # deduplicate them
-        yield from unique_iterator(self._sources.values())
+        yield from helpers.unique_iterator(self._sources.values())
 
     def save_state(self, path: str):
         d = self.to_json()

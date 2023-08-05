@@ -24,7 +24,7 @@ import backup_helper.disk_work_queue as dwq
         ('/src2', None, 'md5', 'hash_file.md5', 'hash_file.log',
          [Target('/target1', 'tgt1', False, True, None),
           Target('/target2', None, True, True,
-                 VerifiedInfo(errors=2, missing=1, crc_errors=1, log_file='/log2'))],
+                 VerifiedInfo(checked=4, errors=2, missing=1, crc_errors=1, log_file='/log2'))],
          True, ['foo', 'bar'], {
              "path": os.path.abspath('/src2'), "alias": None,
              "hash_algorithm": "md5", "hash_file": "hash_file.md5",
@@ -39,7 +39,7 @@ import backup_helper.disk_work_queue as dwq
                      "version": 1, "type": "Target",
                      "path": os.path.abspath("/target2"), "alias": None, "transfered": True,
                      "verify": True,
-                     "verified": {"errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
+                     "verified": {"checked": 4, "errors": 2, "missing": 1, "crc_errors": 1, "log_file": "/log2"},
                  },
              ],
              "force_single_hash": True, "blocklist": ["foo", "bar"],
@@ -75,7 +75,7 @@ def test_to_json(
         "targets": [
             Target('/target1', 'tgt1', False, True, None),
             Target('/target2', None, True, True,
-                   VerifiedInfo(errors=2, missing=1, crc_errors=1, log_file='/log2'))
+                   VerifiedInfo(checked=4, errors=2, missing=1, crc_errors=1, log_file='/log2'))
         ],
         "force_single_hash": True, "blocklist": ["foo", "bar"],
     },
@@ -215,7 +215,7 @@ def setup_source_2targets_1verified():
         'test/target/1', 'target1', False, False, None)
     src1_target2 = Target(
         'test/target/2', 'target2', False, True,
-        VerifiedInfo(2, 2, 0, 'verifylog2'))
+        VerifiedInfo(4, 2, 2, 0, 'verifylog2'))
     src1.add_target(src1_target1)
     src1.add_target(src1_target2)
 

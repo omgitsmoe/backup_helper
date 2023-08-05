@@ -174,7 +174,7 @@ def setup_backup_helper_2sources_2targets_1verified():
         'test/target/1', 'target1', False, False, None)
     src1_target2 = backup_helper.Target(
         'test/target/2', 'target2', False, True,
-        backup_helper.VerifiedInfo(2, 2, 0, 'verifylog2'))
+        backup_helper.VerifiedInfo(4, 2, 2, 0, 'verifylog2'))
     src1.add_target(src1_target1)
     src1.add_target(src1_target2)
     src2 = backup_helper.Source(
@@ -224,6 +224,7 @@ def test_backup_helper_to_json(setup_backup_helper_2sources_2targets_1verified):
                         'transfered': src1_target2.transfered,
                         'verify': src1_target2.verify,
                         'verified': {
+                            'checked': 4,
                             'errors': 2,
                             'missing': 2,
                             'crc_errors': 0,
@@ -280,6 +281,7 @@ BH_WITH_2SOURCES_2TARGETS_1VERIFIED_JSON = """
           "transfered": false,
           "verify": true,
           "verified": {{
+            "checked": 4,
             "errors": 2,
             "missing": 2,
             "crc_errors": 0,
@@ -369,20 +371,6 @@ def test_backup_helper_from_json(setup_backup_helper_2sources_2targets_1verified
     assert loaded_src1_target2.transfered is src1_target2.transfered
     assert loaded_src1_target2.verify is src1_target2.verify
     assert loaded_src1_target2.verified == src1_target2.verified
-
-
-def test_unique_iterator():
-    a = [
-        backup_helper.Target('test/1', 'test1', False, True, None),
-        backup_helper.Target('test/1', 'test1', False, True, None),
-        backup_helper.Target('test/2', 'test2', False, True, None),
-        backup_helper.Target('test/2', 'test2', False, True, None),
-        backup_helper.Target('test/3', 'test3', False, True, None),
-    ]
-
-    assert list(t.path for t in backup_helper.unique_iterator(a)) == [
-        a[0].path, a[2].path, a[4].path
-    ]
 
 
 def test_unique_sources(setup_backup_helper_2sources_2targets_1verified):
@@ -495,6 +483,7 @@ def test_backup_helper_transfer_all_exception_does_not_abort(
 
 
 # TODO integration tests for
-# - hash
+# - (hash)
 # - transfer
 # - verify
+# - (helpers)
