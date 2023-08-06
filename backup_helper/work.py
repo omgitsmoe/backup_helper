@@ -44,7 +44,9 @@ class WorkTransfer:
 
     # whether it's dependencies have completed
     def is_ready(self) -> bool:
-        return bool(self.source.hash_file)
+        # we don't need a hash file on source if the target should not be
+        # verified
+        return not self.target.verify or bool(self.source.hash_file)
 
     def get_involved_paths(self) -> List[str]:
         return [self.source.path, self.target.path]
@@ -66,18 +68,20 @@ class WorkTransfer:
 
 @dataclasses.dataclass
 class WorkVerifyTransfer:
+    source: 'Source'
     target: 'Target'
-    hash_file_name: str
 
     # whether it's dependencies have completed
     def is_ready(self) -> bool:
-        return self.target.transfered
+        # we don't need a hash file on source if the target should not be verified
+        return self.target.transfered and (
+            not self.target.verify or bool(self.source.hash_file))
 
     def get_involved_paths(self) -> List[str]:
         return [self.target.path]
 
     def do_work(self):
-        self.target.verify_from(self.hash_file_name)
+        self.target.verify_from(self.source.hash_file)
         return self
 
     def report_success(self) -> str:

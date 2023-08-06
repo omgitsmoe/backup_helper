@@ -604,8 +604,8 @@ def test_verify_target_queue_all(add_work, setup_source_2targets_1verified):
 
     add_work.assert_has_calls(
         [
-            call([work.WorkVerifyTransfer(src1_target1, src1.hash_file)]),
-            call([work.WorkVerifyTransfer(src1_target2, src1.hash_file)]),
+            call([work.WorkVerifyTransfer(src1, src1_target1)]),
+            call([work.WorkVerifyTransfer(src1, src1_target2)]),
         ]
     )
 
@@ -630,8 +630,8 @@ def test_verify_target_queue_all_use_injected_q(setup_source_2targets_1verified)
     src1.verify_target_queue_all(q)
 
     assert len(q.work) == 2
-    assert q.work[0] == [work.WorkVerifyTransfer(src1_target1, src1.hash_file)]
-    assert q.work[1] == [work.WorkVerifyTransfer(src1_target2, src1.hash_file)]
+    assert q.work[0] == [work.WorkVerifyTransfer(src1, src1_target1)]
+    assert q.work[1] == [work.WorkVerifyTransfer(src1, src1_target2)]
 
 
 @patch('backup_helper.disk_work_queue.DiskWorkQueue.add_work')
@@ -653,6 +653,7 @@ def test_verify_target_queue_all_does_not_queue_not_verify_or_verified(
 @patch('backup_helper.target.Target.verify_from')
 def test_verify_target_all(verify_from, monkeypatch, setup_source_2targets_1verified):
     src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1.hash_file = 'foohashfile'
     src1_target1.transfered = True
     src1_target2.transfered = True
     src1_target1.verify = True
@@ -661,5 +662,5 @@ def test_verify_target_all(verify_from, monkeypatch, setup_source_2targets_1veri
     success, error = src1.verify_target_all()
 
     verify_from.assert_called_once_with(src1.hash_file)
-    assert success == [work.WorkVerifyTransfer(src1_target1, src1.hash_file)]
+    assert success == [work.WorkVerifyTransfer(src1, src1_target1)]
     assert error == []

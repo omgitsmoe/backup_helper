@@ -276,7 +276,7 @@ class Source:
         for target in self.unique_targets():
             if not target.verify or target.verified:
                 continue
-            queue.add_work([work.WorkVerifyTransfer(target, self.hash_file)])
+            queue.add_work([work.WorkVerifyTransfer(self, target)])
 
         return queue
 
