@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class WorkHash:
     source: 'Source'
+    log_dir: str
 
     # whether it's dependencies have completed
     def is_ready(self) -> bool:
@@ -26,7 +27,7 @@ class WorkHash:
         return [self.source.path]
 
     def do_work(self):
-        self.source.hash()
+        self.source.hash(log_directory=self.log_dir)
         return self
 
     def report_success(self) -> str:

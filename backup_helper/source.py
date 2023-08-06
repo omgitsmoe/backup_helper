@@ -265,10 +265,8 @@ class Source:
         return queue.start_and_join_all()
 
     def verify_target_queue_all(self, queue: Optional[work.WorkQueue] = None) -> work.WorkQueue:
-        if self.hash_file is None:
-            raise BackupHelperException(
-                f"Missing hash file name on source {self.path}! The target "
-                "should not have been transfered and can't be verified!")
+        # NOTE: not having a hash_file yet is fine, since the WorkVerifyTransfer
+        # will not be `is_ready` until this source has a hash_file
 
         if queue is None:
             queue = work.setup_work_queue([])

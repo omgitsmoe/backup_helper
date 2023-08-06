@@ -1,3 +1,5 @@
+import sys
+
 from backup_helper import cli
 
-cli.main()
+cli.main(sys.argv[1:])

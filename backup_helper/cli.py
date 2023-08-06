@@ -4,7 +4,7 @@ import argparse
 import os
 import sys
 
-from typing import Union
+from typing import Union, List
 
 from backup_helper.backup_helper import (
     Source, Target, load_backup_state, load_backup_state_save_always
@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     # can have common options without adding arguments to each one
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
-        "--status-file", nargs=1, default="backup_status.json",
+        "--status-file", default="backup_status.json",
         help="Path to the JSON file that contains the state of the current backup "
              "process. Log files will be saved in the same directory.")
 
@@ -312,10 +312,10 @@ def _cl_modify(args: argparse.Namespace):
             print(target.modifiable_fields())
 
 
-def main() -> None:
+def main(args: List[str]) -> None:
     configure_logging(None)
     parser = build_parser()
-    parsed_args = parser.parse_args()
+    parsed_args = parser.parse_args(args)
     if hasattr(parsed_args, 'func') and parsed_args.func:
         workdir = os.path.dirname(parsed_args.status_file)
         configure_logging(os.path.join(workdir, 'backup_helper.log'))
