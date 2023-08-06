@@ -55,12 +55,14 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
             self,
             get_involved_paths: Callable[[WorkType], Iterable[str]],
             worker_func: Callable[[WorkType], ResultType],
+            work_ready_func: Callable[[WorkType], bool],
             work: Optional[List[WorkType]] = None):
         """
         :params work: WorkType
         """
         self._path_getter = get_involved_paths
         self._worker_func = self._wrap_worker(worker_func)
+        self._work_ready_func = work_ready_func
         # maps os.stat().st_dev to whether they're currently in use by this
         # BackupHelper instance
         self._busy_devices: Dict[int, bool] = {}
@@ -116,6 +118,9 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         return device_ids
 
     def _can_start(self, work: WorkType) -> Tuple[bool, Optional[Iterable[int]]]:
+        if not self._work_ready_func(work):
+            return False, None
+
         device_ids = self._get_involved_devices(work)
         if self._any_device_busy(self._busy_devices, device_ids):
             return False, None

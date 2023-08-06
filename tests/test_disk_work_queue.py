@@ -39,7 +39,8 @@ def test_add_work(monkeypatch) -> None:
             'work3': ['path4', 'path1', 'path3'],
         }[x]
 
-    q: dwq.DiskWorkQueue[str, str] = dwq.DiskWorkQueue(get_paths, lambda x: x)
+    q: dwq.DiskWorkQueue[str, str] = dwq.DiskWorkQueue(
+        get_paths, lambda x: x, lambda x: True)
     q.add_work(['work0', 'work1', 'work2', 'work3'])
 
     assert q._work[0].work == 'work0'
@@ -96,7 +97,8 @@ def setup_disk_work_queue_start_ready(monkeypatch) -> Tuple[
 
         return x
 
-    q: dwq.DiskWorkQueue[str, str] = dwq.DiskWorkQueue(get_paths, do_work)
+    q: dwq.DiskWorkQueue[str, str] = dwq.DiskWorkQueue(
+        get_paths, do_work, lambda x: True)
     q.add_work(['work0', 'work1', 'work2', 'work3', 'work4'])
 
     return q, started
@@ -130,8 +132,39 @@ def test_start_ready_devices(setup_disk_work_queue_start_ready) -> None:
     assert errors == [('work4', 'Error text')]
 
 
+def test_start_ready_devices_uses_work_ready_func(setup_disk_work_queue_start_ready) -> None:
+    q, started = setup_disk_work_queue_start_ready
+    q._work_ready_func = lambda x: x != 'work0'
+
+    started.clear()
+    q.start_ready_devices()
+    q.join()
+    assert started == {'work1': True}
+    success, errors = q.get_finished_items()
+    assert success == ['work1']
+    assert errors == []
+
+    q._work_ready_func = lambda x: x != 'work2'
+    started.clear()
+    q.start_ready_devices()
+    q.join()
+    assert started == {'work0': True, 'work4': True}
+    success, errors = q.get_finished_items()
+    assert success == ['work1', 'work0']
+    assert errors == [('work4', 'Error text')]
+
+    q._work_ready_func = lambda x: True
+    started.clear()
+    q.start_ready_devices()
+    q.join()
+    assert started == {'work2': True}
+    success, errors = q.get_finished_items()
+    assert success == ['work1', 'work0', 'work2']
+    assert errors == [('work4', 'Error text')]
+
+
 def test_get_finished_items():
-    q = dwq.DiskWorkQueue(lambda x: x, lambda x: x)
+    q = dwq.DiskWorkQueue(lambda x: x, lambda x: x, lambda x: True)
     # to make sure get_finished_items also includes finished threads that
     # were not yet put into q._finished
     q._thread_done.put(
@@ -150,7 +183,7 @@ def test_get_finished_items():
 
 
 def test_get_finished_items_missing_result():
-    q = dwq.DiskWorkQueue(lambda x: x, lambda x: x)
+    q = dwq.DiskWorkQueue(lambda x: x, lambda x: x, lambda x: True)
     q._finished.extend([
         dwq.WrappedResult(dwq.WrappedWork('work0', []), 'work0', None),
         dwq.WrappedResult(dwq.WrappedWork('work3', []), None, None),
