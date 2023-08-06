@@ -15,21 +15,17 @@ from typing import (
 from backup_helper import helpers
 from backup_helper.exceptions import (
     TargetNotFound, TargetAlreadyExists, AliasAlreadyExists,
-    HashError,
+    HashError, BackupHelperException
 )
 from backup_helper.target import Target
 from backup_helper.disk_work_queue import DiskWorkQueue
+from backup_helper import work
 
 
 from checksum_helper import checksum_helper as ch
 
 
 logger = logging.getLogger(__name__)
-
-
-TransferWork = Tuple['Source', Target]
-TransferResult = TransferWork
-TransferQueue = DiskWorkQueue[TransferWork, TransferResult]
 
 
 @ dataclasses.dataclass
@@ -179,22 +175,6 @@ class Source:
                 else:
                     raise HashError("Empty hash file!")
 
-    @staticmethod
-    def setup_transfer_queue() -> TransferQueue:
-
-        def do_transfer(work: TransferWork):
-            src, target = work
-            src._transfer(target)
-            return (src, target)
-
-        def get_involved_paths(work: TransferWork) -> List[str]:
-            src, target = work
-            return [src.path, target.path]
-
-        queue: TransferQueue = DiskWorkQueue(
-            get_involved_paths, do_transfer, [])
-        return queue
-
     def _create_fnmatch_ignore(self) -> Optional[
             Callable[[str, List[str]], Iterable[str]]]:
         if not self.blocklist:
@@ -268,20 +248,41 @@ class Source:
         else:
             self._transfer(target, force)
 
-    def transfer_queue_all(self, queue: Optional[TransferQueue] = None) -> TransferQueue:
+    def transfer_queue_all(self, queue: Optional[work.WorkQueue] = None) -> work.WorkQueue:
         if queue is None:
-            queue = Source.setup_transfer_queue()
+            queue = work.setup_work_queue([])
 
         for target in self.unique_targets():
             if target.transfered:
                 continue
-            queue.add_work([(self, target)])
+            queue.add_work([work.WorkTransfer(self, target)])
 
         return queue
 
-    def transfer_all(self, queue: Optional[TransferQueue] = None) -> Tuple[
-            List[TransferResult], List[Tuple[TransferResult, str]]]:
+    def transfer_all(self, queue: Optional[work.WorkQueue] = None) -> Tuple[
+            List[work.WorkType], List[Tuple[work.WorkResult, str]]]:
         queue = self.transfer_queue_all(queue)
+        return queue.start_and_join_all()
+
+    def verify_target_queue_all(self, queue: Optional[work.WorkQueue] = None) -> work.WorkQueue:
+        if self.hash_file is None:
+            raise BackupHelperException(
+                f"Missing hash file name on source {self.path}! The target "
+                "should not have been transfered and can't be verified!")
+
+        if queue is None:
+            queue = work.setup_work_queue([])
+
+        for target in self.unique_targets():
+            if not target.verify or target.verified:
+                continue
+            queue.add_work([work.WorkVerifyTransfer(target, self.hash_file)])
+
+        return queue
+
+    def verify_target_all(self, queue: Optional[work.WorkQueue] = None) -> Tuple[
+            List[work.WorkType], List[Tuple[work.WorkResult, str]]]:
+        queue = self.verify_target_queue_all(queue)
         return queue.start_and_join_all()
 
     def status(self) -> str:

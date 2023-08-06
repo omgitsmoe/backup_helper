@@ -1,0 +1,125 @@
+import dataclasses
+import enum
+import logging
+
+from typing import Optional, TYPE_CHECKING, Final, List, Union, Tuple, cast
+
+if TYPE_CHECKING:
+    from backup_helper.source import Source
+    from backup_helper.target import Target, VerifiedInfo
+
+from backup_helper.disk_work_queue import DiskWorkQueue
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class WorkHash:
+    source: 'Source'
+
+    # whether it's dependencies have completed
+    def is_ready(self) -> bool:
+        return True
+
+    def get_involved_paths(self) -> List[str]:
+        return [self.source.path]
+
+    def do_work(self):
+        self.source.hash()
+        return self
+
+    def report_success(self) -> str:
+        return (f"Hashed '{self.source.path}':\n"
+                f"  Hash file: {self.source.hash_file}")
+
+    def report_error(self) -> str:
+        return f"Error hashing '{self.source.path}'!"
+
+
+@dataclasses.dataclass
+class WorkTransfer:
+    source: 'Source'
+    target: 'Target'
+
+    # whether it's dependencies have completed
+    def is_ready(self) -> bool:
+        return bool(self.source.hash_file)
+
+    def get_involved_paths(self) -> List[str]:
+        return [self.source.path, self.target.path]
+
+    def do_work(self):
+        self.source.transfer(self.target)
+        return self
+
+    def report_success(self) -> str:
+        return (f"Transfer successful:\n"
+                f"  From: {self.source.path}\n"
+                f"  To: {self.target.path}")
+
+    def report_error(self) -> str:
+        return ("Error transfering:\n"
+                f"  From: {self.source.path}\n"
+                f"  To: {self.target.path}")
+
+
+@dataclasses.dataclass
+class WorkVerifyTransfer:
+    target: 'Target'
+    hash_file_name: str
+
+    # whether it's dependencies have completed
+    def is_ready(self) -> bool:
+        return self.target.transfered
+
+    def get_involved_paths(self) -> List[str]:
+        return [self.target.path]
+
+    def do_work(self):
+        self.target.verify_from(self.hash_file_name)
+        return self
+
+    def report_success(self) -> str:
+        cast('VerifiedInfo', self.target.verified)
+        return (f"Verified transfer '{self.target.path}':\n"
+                f"  Checked: {self.target.verified.checked}\n"
+                f"  CRC Errors: {self.target.verified.crc_errors}\n"
+                f"  Missing: {self.target.verified.missing}")
+
+    def report_error(self) -> str:
+        return f"Error verifying '{self.target.path}'!"
+
+
+WorkType = Union[WorkHash, WorkTransfer, WorkVerifyTransfer]
+WorkResult = WorkType
+WorkQueue = DiskWorkQueue[WorkType, WorkResult]
+
+
+def get_involved_paths(work: WorkType) -> List[str]:
+    return work.get_involved_paths()
+
+
+def do_work(work: WorkType) -> WorkResult:
+    return work.do_work()
+
+
+def is_ready(work: WorkType) -> bool:
+    return work.is_ready()
+
+
+def setup_work_queue(work_items: List[WorkType]) -> WorkQueue:
+    return WorkQueue(get_involved_paths, do_work, is_ready, work_items)
+
+
+def report_results(success: List[WorkType], errors: List[Tuple[WorkType, str]]):
+    if success:
+        logger.info(
+            "Successfully completed the following %d operation(s):\n%s",
+            len(success),
+            "\n".join(w.report_success() for w in success))
+    if errors:
+        logger.warning(
+            "Failed to complete the following %d operation(s):\n%s",
+            len(errors), "\n".join(f"{w.report_error()}:\n Error: {err}"
+                                   for w, err in errors))

@@ -2,6 +2,7 @@ import logging
 import logging.config
 import argparse
 import os
+import sys
 
 from typing import Union
 
@@ -169,6 +170,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only transfer to a specific target")
     transfer.set_defaults(func=_cl_transfer)
 
+    verify_target = subparsers.add_parser(
+        "verify", parents=[parent_parser],
+        help="Verify target(s) (by default all of them)")
+    verify_target.add_argument(
+        "--source", type=str, metavar='PathOrAlias',
+        help="Only verify target(s) of a specific source")
+    verify_target.add_argument(
+        "--target", type=str, metavar='PathOrAlias',
+        help="Only verify a specific target")
+    verify_target.set_defaults(func=_cl_verify_target)
+
+    start = subparsers.add_parser(
+        "start", parents=[parent_parser],
+        help="Starts a queue such that sources are hashed, transfered "
+             "and the targets are verified, while using a device at most "
+             "once at the same time")
+    start.set_defaults(func=_cl_start)
+
     status = subparsers.add_parser(
         "status", parents=[parent_parser],
         help="Show the status of a source (by default all of them)")
@@ -216,6 +235,28 @@ def _cl_transfer(args: argparse.Namespace):
                 bh.get_source(args.source).transfer_all()
         else:
             bh.transfer_all()
+
+
+def _cl_verify_target(args: argparse.Namespace):
+    with load_backup_state_save_always(args.status_file) as bh:
+        if args.source:
+            if args.target:
+                src = bh.get_source(args.source)
+                if not src.hash_file:
+                    print("Error: Source does not have a hash file!",
+                          file=sys.stderr)
+                else:
+                    src.get_target(
+                        args.target).verify_from(src.hash_file)
+            else:
+                bh.get_source(args.source).verify_target_all()
+        else:
+            bh.verify_all()
+
+
+def _cl_start(args: argparse.Namespace):
+    with load_backup_state_save_always(args.status_file) as bh:
+        bh.start_all()
 
 
 def _cl_status(args: argparse.Namespace):

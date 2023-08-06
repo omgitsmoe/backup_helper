@@ -8,18 +8,17 @@ import time
 
 from typing import (
     List, Optional, Dict, Any, Union, cast, Callable, Set,
-    Iterator, Iterable, TYPE_CHECKING
+    Iterator, Iterable, TYPE_CHECKING, Tuple
 )
 
 from backup_helper import helpers
 from backup_helper.exceptions import (
     SourceNotFound, TargetNotFound,
-    SourceAlreadyExists, TargetAlreadyExists, AliasAlreadyExists,
-    HashError,
+    SourceAlreadyExists, AliasAlreadyExists,
 )
 from backup_helper.source import Source
-from backup_helper.target import Target, VerifiedInfo
-from backup_helper.disk_work_queue import DiskWorkQueue
+from backup_helper.target import Target
+from backup_helper import work
 
 logger = logging.getLogger(__name__)
 
@@ -115,48 +114,37 @@ class BackupHelper:
             raise SourceNotFound(
                 f"Source '{source_key}' not found!", source_key)
 
-    @staticmethod
-    def _hash_source(source: Source) -> bool:
-        try:
-            source.hash()
-            return True
-        except Exception:
-            logger.exception("Hashing '{src.path}' failed!")
-            return False
-
-    def hash_all(self):
-        def do_hash(source: Source) -> Source:
-            source.hash()
-            return source
-
-        q = DiskWorkQueue(lambda s: [s.path], do_hash,
-                          list(self.unique_sources()))
+    def hash_all(self) -> None:
+        q = work.setup_work_queue([work.WorkHash(s)
+                                  for s in self.unique_sources()])
         success, errors = q.start_and_join_all()
-        if success:
-            logger.info(
-                "Successfully created checksums for %d source(s):\n%s",
-                len(success), "\n".join(f"{s.path}: {s.hash_file}" for s in success))
-        if errors:
-            logger.warning(
-                "Failed to create checksums for %d source(s):\n%s",
-                len(errors), "\n".join(f"{s.path}: {err}" for s, err in errors))
+        work.report_results(success, errors)
 
-    def transfer_all(self):
-        queue = Source.setup_transfer_queue()
+    def transfer_all(self) -> None:
+        queue = work.setup_work_queue([])
         for src in self.unique_sources():
             src.transfer_queue_all(queue)
 
         success, errors = queue.start_and_join_all()
-        if success:
-            logger.info(
-                "Successfully transfered source(s) to %d target(s):\n%s",
-                len(success), "\n".join(f"{s.path} to {t.path}"
-                                        for s, t in success))
-        if errors:
-            logger.warning(
-                "Failed to transfer source(s) to %d target(s):\n%s",
-                len(errors), "\n".join(f"{err}: {s.path} to {t.path}"
-                                       for (s, t), err in errors))
+        work.report_results(success, errors)
+
+    def verify_all(self) -> None:
+        queue = work.setup_work_queue([])
+        for src in self.unique_sources():
+            src.verify_target_queue_all(queue)
+
+        success, errors = queue.start_and_join_all()
+        work.report_results(success, errors)
+
+    def start_all(self) -> None:
+        queue = work.setup_work_queue(
+            [work.WorkHash(s) for s in self.unique_sources()])
+        for src in self.unique_sources():
+            src.transfer_queue_all(queue)
+            src.verify_target_queue_all(queue)
+
+        success, errors = queue.start_and_join_all()
+        work.report_results(success, errors)
 
     def status(self, source_key: str) -> str:
         try:

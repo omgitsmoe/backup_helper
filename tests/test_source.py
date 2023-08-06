@@ -2,7 +2,7 @@ import pytest
 import os
 import threading
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from checksum_helper.checksum_helper import ChecksumHelperData
 
@@ -10,6 +10,7 @@ from backup_helper.source import Source
 from backup_helper.target import Target, VerifiedInfo
 import backup_helper.exceptions as exc
 import backup_helper.disk_work_queue as dwq
+from backup_helper import work
 
 
 @pytest.mark.parametrize(
@@ -240,13 +241,13 @@ def test_transfer_queue_all_queue_passed_in(monkeypatch, setup_source_2targets_1
     src1_target1.transfered = False
     src1_target2.transfered = False
 
-    q = Source.setup_transfer_queue()
+    q = work.setup_work_queue([])
 
     src1.transfer_queue_all(q)
 
     assert len(q._work) == 2
-    assert q._work[0].work == (src1, src1_target1)
-    assert q._work[1].work == (src1, src1_target2)
+    assert q._work[0].work == work.WorkTransfer(src1, src1_target1)
+    assert q._work[1].work == work.WorkTransfer(src1, src1_target2)
     assert q._work[0].involved_devices == [
         dwq.get_device_identifier(src1.path),
         dwq.get_device_identifier(src1_target1.path)]
@@ -263,7 +264,7 @@ def test_transfer_queue_all(monkeypatch, setup_source_2targets_1verified):
     q = src1.transfer_queue_all()
 
     assert len(q._work) == 1
-    assert q._work[0].work == (src1, src1_target1)
+    assert q._work[0].work == work.WorkTransfer(src1, src1_target1)
     assert q._work[0].involved_devices == [
         dwq.get_device_identifier(src1.path),
         dwq.get_device_identifier(src1_target1.path)]
@@ -289,8 +290,8 @@ def test_transfer_all(monkeypatch, setup_source_2targets_1verified):
     assert len(error) == 1
 
     assert copied == [(src1.path, src1_target1.path)]
-    assert success == [(src1, src1_target1)]
-    assert error == [((src1, src1_target2), "testfail")]
+    assert success == [work.WorkTransfer(src1, src1_target1)]
+    assert error == [(work.WorkTransfer(src1, src1_target2), "testfail")]
 
 
 def test_transfer_already(monkeypatch, setup_source_2targets_1verified):
@@ -587,3 +588,78 @@ def test_hash_thread_log_handler_removed_after(patched_strftime, patched_sanitiz
             ['Checksum_Helper', 'INFO', 'Wrote', os.path.join(
                 hash_dir, 'test1_bh_footime.cshd')],
         ]
+
+
+@patch('backup_helper.disk_work_queue.DiskWorkQueue.add_work')
+def test_verify_target_queue_all(add_work, setup_source_2targets_1verified):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1_target1.transfered = True
+    src1_target2.transfered = True
+    src1_target1.verify = True
+    src1_target2.verify = True
+    src1_target1.verified = None
+    src1_target2.verified = None
+
+    src1.verify_target_queue_all()
+
+    add_work.assert_has_calls(
+        [
+            call([work.WorkVerifyTransfer(src1_target1, src1.hash_file)]),
+            call([work.WorkVerifyTransfer(src1_target2, src1.hash_file)]),
+        ]
+    )
+
+
+def test_verify_target_queue_all_use_injected_q(setup_source_2targets_1verified):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1_target1.transfered = True
+    src1_target2.transfered = True
+    src1_target1.verify = True
+    src1_target2.verify = True
+    src1_target1.verified = None
+    src1_target2.verified = None
+
+    class DummyQ:
+        def __init__(self):
+            self.work = []
+
+        def add_work(self, work):
+            self.work.append(work)
+
+    q = DummyQ()
+    src1.verify_target_queue_all(q)
+
+    assert len(q.work) == 2
+    assert q.work[0] == [work.WorkVerifyTransfer(src1_target1, src1.hash_file)]
+    assert q.work[1] == [work.WorkVerifyTransfer(src1_target2, src1.hash_file)]
+
+
+@patch('backup_helper.disk_work_queue.DiskWorkQueue.add_work')
+def test_verify_target_queue_all_does_not_queue_not_verify_or_verified(
+        add_work, setup_source_2targets_1verified):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1_target1.transfered = True
+    src1_target2.transfered = True
+    src1_target1.verify = False
+    src1_target2.verify = True
+    src1_target1.verified = None
+    src1_target2.verified = VerifiedInfo(4, 2, 1, 1, 'log')
+
+    src1.verify_target_queue_all()
+
+    add_work.assert_not_called()
+
+
+@patch('backup_helper.target.Target.verify_from')
+def test_verify_target_all(verify_from, monkeypatch, setup_source_2targets_1verified):
+    src1, src1_target1, src1_target2 = setup_source_2targets_1verified
+    src1_target1.transfered = True
+    src1_target2.transfered = True
+    src1_target1.verify = True
+    src1_target2.verify = False
+
+    success, error = src1.verify_target_all()
+
+    verify_from.assert_called_once_with(src1.hash_file)
+    assert success == [work.WorkVerifyTransfer(src1_target1, src1.hash_file)]
+    assert error == []

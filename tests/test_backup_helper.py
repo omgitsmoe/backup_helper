@@ -3,6 +3,7 @@ import json
 import os
 
 from backup_helper import backup_helper
+from backup_helper.target import VerifiedInfo
 
 BH_WITH_ONE_SOURCE_JSON = """{
    "version":1,
@@ -174,7 +175,7 @@ def setup_backup_helper_2sources_2targets_1verified():
         'test/target/1', 'target1', False, False, None)
     src1_target2 = backup_helper.Target(
         'test/target/2', 'target2', False, True,
-        backup_helper.VerifiedInfo(4, 2, 2, 0, 'verifylog2'))
+        VerifiedInfo(4, 2, 2, 0, 'verifylog2'))
     src1.add_target(src1_target1)
     src1.add_target(src1_target2)
     src2 = backup_helper.Source(

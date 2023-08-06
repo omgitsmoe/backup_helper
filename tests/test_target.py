@@ -12,7 +12,8 @@ from backup_helper.target import Target, VerifiedInfo
         "verify": True, "verified": None,
     }),
     ('/target2', None, True, True,
-     VerifiedInfo(checked=4, errors=2, missing=1, crc_errors=1, log_file='/log2'),
+     VerifiedInfo(checked=4, errors=2, missing=1,
+                  crc_errors=1, log_file='/log2'),
      {
          "path": os.path.abspath("/target2"), "alias": None, "transfered": True,
          "verify": True,
@@ -104,7 +105,7 @@ def test_target_verify_checks_flag(
 ):
     target = Target('foodir', 'fooalias', False, False, None)
     instance = ChecksumHelperData.return_value
-    log_name = os.path.join('.', 'foohashname_vf_footime.log')
+    log_name = os.path.join(target.path, 'foohashname_vf_footime.log')
     expected = VerifiedInfo(5, 2, 1, 1, log_name)
     instance.verify.return_value = (
         [('baz', 'crc')],
@@ -126,7 +127,7 @@ def test_target_verify_checks_flag(
 @patch('checksum_helper.checksum_helper.ChecksumHelperData')
 @patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foohashname'})
 @patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
-def test_target_verify_checks_flag(
+def test_target_verify(
     patched_strftime,
     patched_sanitize,
     ChecksumHelperData,
@@ -136,7 +137,7 @@ def test_target_verify_checks_flag(
 ):
     target = Target('foodir', 'fooalias', True, True, None)
     instance = ChecksumHelperData.return_value
-    log_name = os.path.join('.', 'foohashname_vf_footime.log')
+    log_name = os.path.join(target.path, 'foohashname_vf_footime.log')
     expected = VerifiedInfo(5, 2, 1, 1, log_name)
     instance.verify.return_value = (
         [('baz', 'crc')],

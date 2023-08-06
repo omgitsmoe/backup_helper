@@ -70,7 +70,7 @@ class Target:
     def verify_from(
         self,
         hash_file_name: str,
-        log_directory: str = '.',
+        log_directory: Optional[str] = None,
         force: bool = False
     ) -> Optional[VerifiedInfo]:
         if not self.verify and not force:
@@ -84,6 +84,8 @@ class Target:
                 self.path)
             return None
 
+        if log_directory is None:
+            log_directory = self.path
         log_path = os.path.join(
             log_directory,
             f"{helpers.sanitize_filename(hash_file_name)}_vf_"
