@@ -12,6 +12,8 @@ from typing import (
     List, Dict, cast
 )
 
+from backup_helper.exceptions import QueueItemsWillNeverBeReady
+
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,11 @@ class WrappedResult(Generic[WorkType, ResultType]):
 
 
 class DiskWorkQueue(Generic[WorkType, ResultType]):
-    """Not thread-safe!"""
+    """Not thread-safe!
+    NOTE: Please do not use a `work_ready_func` that uses timers, since the
+    queue currently assumes that if no jobs are running and no items
+    could be started anymore, those left-over items will never be ready.
+    """
 
     def __init__(
             self,
@@ -150,7 +156,7 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
 
     def _wait_till_one_thread_finished_and_update(self):
         """
-        Blocks until at leas one item is retrieved from the Queue.
+        Blocks until at least one item is retrieved from the Queue.
         Then updates it.
         """
         wrapped_result = self._thread_done.get()
@@ -160,17 +166,19 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
     def start_ready_devices(self):
         """
         Starts a Thread on all work items if all involved devices are
-        currently not in used by this DiskWorkQueue
+        currently not in use by this DiskWorkQueue
         """
         # first update the busy devices if there are finished threads
         self._update_finished_threads()
 
+        started = False
         for work in self._work:
             if work.started:
                 continue
 
             can_start, devices = self._can_start(work.work)
             if can_start:
+                started = True
                 for dev in devices:
                     self._busy_devices[dev] = True
 
@@ -178,6 +186,17 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
                 t.start()
                 self._running += 1
                 work.started = True
+
+        # we might've items that will never finish since they're
+        # _work_ready_func will never return True
+        # this condition is probably met if no work was started and we
+        # don't have any running threads
+        if not started and self._running == 0 and len(self._finished) < len(self._work):
+            raise QueueItemsWillNeverBeReady(
+                "The queue items left will never be ready, since no more jobs "
+                "are running and no jobs could be started!\n",
+                [w for w in self._work if w.started is False])
+                
 
     def get_finished_items(self) -> Tuple[List[ResultType], List[Tuple[WorkType, str]]]:
         self._update_finished_threads()
@@ -207,11 +226,16 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         Wait till all work items are finished
         :returns: Successful items, Error strings of failed items/worker_func
         """
-        self.start_ready_devices()
-        while len(self._finished) < len(self._work):
-            # since start_ready_devices can update self._finished this
-            # needs to happen first
-            self._wait_till_one_thread_finished_and_update()
+        try:
             self.start_ready_devices()
+            while len(self._finished) < len(self._work):
+                # since start_ready_devices can update self._finished this
+                # needs to happen first
+                self._wait_till_one_thread_finished_and_update()
+                self.start_ready_devices()
+        except QueueItemsWillNeverBeReady:
+            logger.warning(
+                "Not all work items could be finished, since they were not "
+                "ready while no jobs were running or could be started anymore!")
 
         return self.get_finished_items()

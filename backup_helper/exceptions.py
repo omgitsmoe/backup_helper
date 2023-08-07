@@ -1,3 +1,6 @@
+from typing import List, TypeVar
+
+
 class BackupHelperException(Exception):
     def __init__(self, message: str):
         super().__init__(message)
@@ -38,3 +41,12 @@ class TargetNotFound(BackupHelperException):
 class HashError(BackupHelperException):
     def __init__(self, message: str):
         super().__init__(message)
+
+
+T = TypeVar('T')
+
+
+class QueueItemsWillNeverBeReady(BackupHelperException):
+    def __init__(self, message: str, work_not_ready: List[T]):
+        super().__init__(message)
+        self.work_not_ready = work_not_ready

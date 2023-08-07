@@ -4,6 +4,7 @@ import os
 from typing import List, Tuple, Dict
 
 from backup_helper import disk_work_queue as dwq
+from backup_helper.exceptions import QueueItemsWillNeverBeReady
 
 
 @pytest.mark.parametrize('test_devices,busy_map,expected', [
@@ -97,15 +98,26 @@ def setup_disk_work_queue_start_ready(monkeypatch) -> Tuple[
 
         return x
 
+    ready_map = {
+        'work0': True,
+        'work1': True,
+        'work2': True,
+        'work3': True,
+        'work4': True,
+    }
+
+    def is_ready(x: str) -> bool:
+        return ready_map[x]
+
     q: dwq.DiskWorkQueue[str, str] = dwq.DiskWorkQueue(
-        get_paths, do_work, lambda x: True)
+        get_paths, do_work, is_ready)
     q.add_work(['work0', 'work1', 'work2', 'work3', 'work4'])
 
-    return q, started
+    return q, started, ready_map
 
 
 def test_start_ready_devices(setup_disk_work_queue_start_ready) -> None:
-    q, started = setup_disk_work_queue_start_ready
+    q, started, _ = setup_disk_work_queue_start_ready
 
     started.clear()
     q.start_ready_devices()
@@ -133,7 +145,7 @@ def test_start_ready_devices(setup_disk_work_queue_start_ready) -> None:
 
 
 def test_start_ready_devices_uses_work_ready_func(setup_disk_work_queue_start_ready) -> None:
-    q, started = setup_disk_work_queue_start_ready
+    q, started, _ = setup_disk_work_queue_start_ready
     q._work_ready_func = lambda x: x != 'work0'
 
     started.clear()
@@ -194,7 +206,7 @@ def test_get_finished_items_missing_result():
 
 
 def test_join(setup_disk_work_queue_start_ready):
-    q, started = setup_disk_work_queue_start_ready
+    q, started, _ = setup_disk_work_queue_start_ready
     q.start_ready_devices()
     q.join()
     assert all(not x for x in q._busy_devices.values())
@@ -206,7 +218,7 @@ def test_join(setup_disk_work_queue_start_ready):
 
 
 def test_start_and_join_all(setup_disk_work_queue_start_ready):
-    q, started = setup_disk_work_queue_start_ready
+    q, started, _ = setup_disk_work_queue_start_ready
     success, errors = q.start_and_join_all()
     assert started == {'work0': True, 'work1': True, 'work2': True,
                        'work3': True, 'work4': True}
@@ -223,3 +235,22 @@ def test_get_device_identifier_uses_pardir_if_nonexistant():
     path = os.path.join(os.path.abspath('.'), 'sfdkls', 'tsrfsdfsdfshfhfdg')
     expected = os.stat(os.path.abspath('.')).st_dev
     assert dwq.get_device_identifier(path) == expected
+
+
+def test_queue_will_not_block_if_item_never_ready(setup_disk_work_queue_start_ready):
+    q, started, ready_map = setup_disk_work_queue_start_ready
+    ready_map['work2'] = False
+
+    with pytest.raises(QueueItemsWillNeverBeReady) as e:
+        while True:
+            q.start_ready_devices()
+    assert e.value.work_not_ready == [dwq.WrappedWork('work2', [0,0,1], False)]
+    # work2 is left in q, since it might be ready on next start
+    success, errors = q.get_finished_items()
+    assert started == {'work0': True, 'work1': True,
+                       'work3': True, 'work4': True}
+    assert success == ['work0', 'work1', 'work3']
+    assert errors == [('work4', 'Error text')]
+    assert q._running == 0
+    assert len(q._finished) == len(q._work) - 1
+    assert all(not x for x in q._busy_devices.values())
