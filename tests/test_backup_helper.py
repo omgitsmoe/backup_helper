@@ -88,6 +88,13 @@ def test_load_state_no_save_without_crash(read_backup_helper_state_return_writte
     assert written['contents'].written is None
 
 
+def test_load_state_uses_passed_instance(read_backup_helper_state_return_written):
+    written = read_backup_helper_state_return_written
+    expected = backup_helper.BackupHelper.from_json(BH_WITH_ONE_SOURCE_JSON)
+    with backup_helper.load_backup_state("test", expected) as bh:
+        assert bh is expected
+
+
 def test_load_state_saves_crash_name_exists(monkeypatch, read_backup_helper_state_return_written):
     written = read_backup_helper_state_return_written
 
@@ -481,10 +488,3 @@ def test_backup_helper_transfer_all_exception_does_not_abort(
         assert all(
             not t.transfered if t.path == err_target_path else t.transfered
             for t in src.unique_targets())
-
-
-# TODO integration tests for
-# - (hash)
-# - transfer
-# - verify
-# - (helpers)

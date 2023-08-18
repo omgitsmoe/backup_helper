@@ -4,12 +4,13 @@ import argparse
 import os
 import sys
 
-from typing import Union, List
+from typing import Union, List, Optional
 
 from backup_helper.backup_helper import (
-    Source, Target, load_backup_state, load_backup_state_save_always
+    BackupHelper, Source, Target, load_backup_state, load_backup_state_save_always
 )
 from backup_helper.exceptions import SourceNotFound, TargetNotFound
+from backup_helper.interactive import BackupHelperInteractive
 
 
 def configure_logging(log_path):
@@ -81,7 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
     #     verified: { log: "..", errors: 11, missing: 11, crc_missmatch: 0 },
     #    {path: "..." ...}]
     parser = argparse.ArgumentParser(
-        description="Create checksum files, copy files and verify the transfer!")
+        description="Backup tool for transfering lots of data to multiple "
+                    "targets efficiently, while each source/target gets their "
+                    "own file containing checksums, which is verified on the "
+                    "target.")
 
     # save name of used subcmd in var subcmd
     subparsers = parser.add_subparsers(
@@ -188,6 +192,12 @@ def build_parser() -> argparse.ArgumentParser:
              "once at the same time")
     start.set_defaults(func=_cl_start)
 
+    interactive = subparsers.add_parser(
+        "interactive", parents=[parent_parser],
+        help="Launch into interactive mode, where you can stage sources and "
+             "add targets while the queue is running in the background!")
+    interactive.set_defaults(func=_cl_interactive)
+
     status = subparsers.add_parser(
         "status", parents=[parent_parser],
         help="Show the status of a source (by default all of them)")
@@ -199,8 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cl_stage(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_stage(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         bh.add_source(Source(
             args.path, args.alias, args.hash_algorithm, None, None, {},
             force_single_hash=args.single_hash))
@@ -209,8 +219,8 @@ def _cl_stage(args: argparse.Namespace):
             print("    with alias:", args.alias)
 
 
-def _cl_add_target(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_add_target(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         bh.get_source(args.source).add_target(
             Target(args.path, args.alias, False, not args.no_verify, None))
         print("Added target", args.path)
@@ -218,16 +228,16 @@ def _cl_add_target(args: argparse.Namespace):
             print("    with alias:", args.alias)
 
 
-def _cl_hash(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_hash(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         if args.source:
             bh.get_source(args.source).hash()
         else:
             bh.hash_all()
 
 
-def _cl_transfer(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_transfer(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         if args.source:
             if args.target:
                 bh.get_source(args.source).transfer(args.target)
@@ -237,8 +247,8 @@ def _cl_transfer(args: argparse.Namespace):
             bh.transfer_all()
 
 
-def _cl_verify_target(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_verify_target(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         if args.source:
             if args.target:
                 src = bh.get_source(args.source)
@@ -254,26 +264,26 @@ def _cl_verify_target(args: argparse.Namespace):
             bh.verify_all()
 
 
-def _cl_start(args: argparse.Namespace):
-    with load_backup_state_save_always(args.status_file) as bh:
+def _cl_start(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
         bh.start_all()
 
 
-def _cl_status(args: argparse.Namespace):
+def _cl_status(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
     print("Status:")
-    with load_backup_state(args.status_file) as bh:
+    with load_backup_state(args.status_file, instance) as bh:
         if args.source:
             print(bh.status(args.source))
         else:
             print(bh.status_all())
 
 
-def _cl_modify(args: argparse.Namespace):
+def _cl_modify(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
     print("WARNING: You need to know what you're doing if you modify fields "
           "like src.target.transfered, etc.")
     loader_func = (
         load_backup_state_save_always if args.value else load_backup_state)
-    with loader_func(args.status_file) as bh:
+    with loader_func(args.status_file, instance) as bh:
         try:
             src = bh.get_source(args.source)
         except SourceNotFound as e:
@@ -312,6 +322,22 @@ def _cl_modify(args: argparse.Namespace):
             print(target.modifiable_fields())
 
 
+def _cl_interactive(args: argparse.Namespace, parser: argparse.ArgumentParser,
+                    instance: Optional[BackupHelper] = None):
+    with load_backup_state_save_always(args.status_file, instance) as bh:
+        cmd = BackupHelperInteractive(parser, args.status_file, bh)
+        while True:
+            try:
+                cmd.cmdloop()
+            except KeyboardInterrupt:
+                print("Intercepted KeyboardInterrupt! Please use the exit "
+                      "command to properly leave interactive mode and wait "
+                      "for all operations to finish!")
+                pass
+            else:
+                break
+
+
 def main(args: List[str]) -> None:
     configure_logging(None)
     parser = build_parser()
@@ -319,6 +345,10 @@ def main(args: List[str]) -> None:
     if hasattr(parsed_args, 'func') and parsed_args.func:
         workdir = os.path.dirname(parsed_args.status_file)
         configure_logging(os.path.join(workdir, 'backup_helper.log'))
-        parsed_args.func(parsed_args)
+
+        if parsed_args.func == _cl_interactive:
+            _cl_interactive(parsed_args, parser)
+        else:
+            parsed_args.func(parsed_args)
     else:
         parser.print_usage()

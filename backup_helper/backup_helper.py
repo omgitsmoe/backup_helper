@@ -8,7 +8,7 @@ import time
 
 from typing import (
     List, Optional, Dict, Any, Union, cast, Callable, Set,
-    Iterator, Iterable, TYPE_CHECKING, Tuple
+    Iterator, Iterable, TYPE_CHECKING, Tuple, overload
 )
 
 from backup_helper import helpers
@@ -32,6 +32,7 @@ class BackupHelper:
             self._sources[source.path] = source
             if source.alias:
                 self._sources[source.alias] = source
+        self._queue = work.setup_work_queue([])
 
     @ classmethod
     def load_state(cls, path: str) -> 'BackupHelper':
@@ -115,37 +116,41 @@ class BackupHelper:
                 f"Source '{source_key}' not found!", source_key)
 
     def hash_all(self) -> None:
-        q = work.setup_work_queue([work.WorkHash(s, log_dir=self._working_dir)
-                                  for s in self.unique_sources()])
-        success, errors = q.start_and_join_all()
+        self._queue.add_work([work.WorkHash(s, log_dir=self._working_dir)
+                              for s in self.unique_sources()])
+        success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
 
     def transfer_all(self) -> None:
-        queue = work.setup_work_queue([])
         for src in self.unique_sources():
-            src.transfer_queue_all(queue)
+            src.transfer_queue_all(self._queue)
 
-        success, errors = queue.start_and_join_all()
+        success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
 
     def verify_all(self) -> None:
-        queue = work.setup_work_queue([])
         for src in self.unique_sources():
-            src.verify_target_queue_all(queue)
+            src.verify_target_queue_all(self._queue)
 
-        success, errors = queue.start_and_join_all()
+        success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
 
     def start_all(self) -> None:
-        queue = work.setup_work_queue(
+        self._queue.add_work(
             [work.WorkHash(s, log_dir=self._working_dir)
              for s in self.unique_sources()])
         for src in self.unique_sources():
-            src.transfer_queue_all(queue)
-            src.verify_target_queue_all(queue)
+            src.transfer_queue_all(self._queue)
+            src.verify_target_queue_all(self._queue)
 
-        success, errors = queue.start_and_join_all()
+        success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
+
+    def workers_running(self) -> bool:
+        return self._queue.workers_running()
+
+    def join(self) -> None:
+        self._queue.join()
 
     def status(self, source_key: str) -> str:
         try:
@@ -165,9 +170,14 @@ class BackupHelper:
 
 
 @ contextlib.contextmanager
-def load_backup_state(path: str) -> Iterator[BackupHelper]:
+def load_backup_state(
+        path: str, instance: Optional[BackupHelper] = None) -> Iterator[BackupHelper]:
     """Contextmangaer that saves state on Exception"""
-    bh = BackupHelper.load_state(path)
+    if instance is None:
+        bh = BackupHelper.load_state(path)
+    else:
+        bh = instance
+
     try:
         yield bh
     except Exception:
@@ -177,11 +187,9 @@ def load_backup_state(path: str) -> Iterator[BackupHelper]:
 
 
 @ contextlib.contextmanager
-def load_backup_state_save_always(path: str) -> Iterator[BackupHelper]:
+def load_backup_state_save_always(
+        path: str, instance: Optional[BackupHelper] = None) -> Iterator[BackupHelper]:
     """Contextmangaer that saves state on exit"""
-    with load_backup_state(path) as bh:
+    with load_backup_state(path, instance) as bh:
         yield bh
         bh.save_state(path)
-
-# TODO use realpath to decide which operations can run in parallel
-# (to see which have same root drive)

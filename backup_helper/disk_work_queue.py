@@ -18,6 +18,11 @@ from backup_helper.exceptions import QueueItemsWillNeverBeReady
 logger = logging.getLogger(__name__)
 
 
+# NOTE: if we have a symlink and we go beyond it, because that device
+# is not connected at the moment, it will still be fine, since
+# the work item will not be able to run or fail to run immediately.
+# So it will not end up erroneously blocking a devcie that
+# is not involved in the  operation.
 def get_device_identifier(path: str) -> int:
     # st_dev
     # Identifier of the device on which this file resides.
@@ -159,7 +164,16 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         Blocks until at least one item is retrieved from the Queue.
         Then updates it.
         """
-        wrapped_result = self._thread_done.get()
+        # NOTE: thread.join, q.get etc. are not interruptable by SIGINT
+        # need to use own implementation that uses the original with a timeout
+        # and a sleep (the latter is interruptable)
+        while True:
+            try:
+                wrapped_result = self._thread_done.get(timeout=0.1)
+            except queue.Empty:
+                time.sleep(0.2)
+            else:
+                break
         self._work_done(wrapped_result)
         self._thread_done.task_done()
 
@@ -191,14 +205,15 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         # _work_ready_func will never return True
         # this condition is probably met if no work was started and we
         # don't have any running threads
-        if not started and self._running == 0 and len(self._finished) < len(self._work):
+        if not started and not self.workers_running() and len(self._finished) < len(self._work):
             raise QueueItemsWillNeverBeReady(
                 "The queue items left will never be ready, since no more jobs "
                 "are running and no jobs could be started!\n",
                 [w for w in self._work if w.started is False])
-                
 
     def get_finished_items(self) -> Tuple[List[ResultType], List[Tuple[WorkType, str]]]:
+        # TODO: don't return/print items that were already finished
+        #       -> don't queue them in BackupHelper
         self._update_finished_threads()
 
         success: List[ResultType] = []
@@ -217,15 +232,22 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
 
         return success, errors
 
+    def workers_running(self) -> bool:
+        return self._running > 0
+
     def join(self) -> None:
-        while self._running > 0:
+        """Wait till all workers are done! Can be interrupted by KeyboardInterrupt"""
+        while self.workers_running():
             self._wait_till_one_thread_finished_and_update()
 
     def start_and_join_all(self) -> Tuple[List[ResultType], List[Tuple[WorkType, str]]]:
         """
         Wait till all work items are finished
+        Can be interrupted by KeyboardInterrupt
         :returns: Successful items, Error strings of failed items/worker_func
         """
+        # TODO: make this interruptable by ctrl-c? so it can be used to
+        # add more work items while the threads continue to run?
         try:
             self.start_ready_devices()
             while len(self._finished) < len(self._work):
@@ -237,5 +259,9 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
             logger.warning(
                 "Not all work items could be finished, since they were not "
                 "ready while no jobs were running or could be started anymore!")
+        except KeyboardInterrupt:
+            print("Continue after Ctrl+C... Currently running items will be "
+                  "finished and can keep the program running. Don't force "
+                  "close it!")
 
         return self.get_finished_items()

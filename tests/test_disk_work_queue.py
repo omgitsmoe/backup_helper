@@ -1,6 +1,8 @@
 import pytest
 import os
 
+from unittest.mock import patch
+
 from typing import List, Tuple, Dict
 
 from backup_helper import disk_work_queue as dwq
@@ -229,6 +231,24 @@ def test_start_and_join_all(setup_disk_work_queue_start_ready):
     assert all(not x for x in q._busy_devices.values())
 
 
+@patch('backup_helper.disk_work_queue.DiskWorkQueue._work_done')
+def test_start_and_join_all_interruptable(_work_done, capsys):
+    _work_done.side_effect = KeyboardInterrupt
+
+    def work(w: int, *args, **kwargs):
+        return w
+
+    q = dwq.DiskWorkQueue(lambda x: ['.'], work, lambda x: True, [1, 2, 3])
+    success, errors = q.start_and_join_all()
+    assert success == []
+    assert errors == []
+    # since we replace work_done / or "hit Ctrl+C before it"
+    assert q._running == 1
+
+    captured = capsys.readouterr()
+    assert 'Ctrl+C' in captured.out
+
+
 def test_get_device_identifier_uses_pardir_if_nonexistant():
     # if a path hasn't been created yet get_device_identifier
     # should walk up till it finds an existing dir
@@ -244,7 +264,8 @@ def test_queue_will_not_block_if_item_never_ready(setup_disk_work_queue_start_re
     with pytest.raises(QueueItemsWillNeverBeReady) as e:
         while True:
             q.start_ready_devices()
-    assert e.value.work_not_ready == [dwq.WrappedWork('work2', [0,0,1], False)]
+    assert e.value.work_not_ready == [
+        dwq.WrappedWork('work2', [0, 0, 1], False)]
     # work2 is left in q, since it might be ready on next start
     success, errors = q.get_finished_items()
     assert started == {'work0': True, 'work1': True,
