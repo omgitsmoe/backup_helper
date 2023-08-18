@@ -212,8 +212,6 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
                 [w for w in self._work if w.started is False])
 
     def get_finished_items(self) -> Tuple[List[ResultType], List[Tuple[WorkType, str]]]:
-        # TODO: don't return/print items that were already finished
-        #       -> don't queue them in BackupHelper
         self._update_finished_threads()
 
         success: List[ResultType] = []
@@ -246,8 +244,6 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         Can be interrupted by KeyboardInterrupt
         :returns: Successful items, Error strings of failed items/worker_func
         """
-        # TODO: make this interruptable by ctrl-c? so it can be used to
-        # add more work items while the threads continue to run?
         try:
             self.start_ready_devices()
             while len(self._finished) < len(self._work):

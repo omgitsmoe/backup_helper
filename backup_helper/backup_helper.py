@@ -117,7 +117,8 @@ class BackupHelper:
 
     def hash_all(self) -> None:
         self._queue.add_work([work.WorkHash(s, log_dir=self._working_dir)
-                              for s in self.unique_sources()])
+                              for s in self.unique_sources()
+                              if not s.hash_file])
         success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
 

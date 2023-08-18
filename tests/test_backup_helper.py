@@ -447,12 +447,47 @@ def test_backup_helper_get_source_not_found():
         bh.get_source('foo')
 
 
-def test_backup_helper_hash_all(setup_backup_helper_2sources_2targets_1verified):
+def test_backup_helper_hash_all(setup_backup_helper_2sources_2targets_1verified, monkeypatch):
     setup = setup_backup_helper_2sources_2targets_1verified
+    setup['src1'].hash_file = None
+    setup['src2'].hash_file = None
+    setup['src1'].hash_log_file = None
+    setup['src2'].hash_log_file = None
     bh = setup['bh']
+
+    def patched_hash_work(self):
+        self.source.hash_file = True
+        self.source.hash_log_file = True
+        return self
+
+    monkeypatch.setattr(
+        'backup_helper.work.WorkHash.do_work', patched_hash_work)
+
     bh.hash_all()
     assert all(s.hash_file for s in bh.unique_sources())
     assert all(s.hash_log_file for s in bh.unique_sources())
+
+
+def test_backup_helper_hash_all_does_not_queue_hashed(
+        setup_backup_helper_2sources_2targets_1verified, monkeypatch):
+    setup = setup_backup_helper_2sources_2targets_1verified
+    setup['src1'].hash_file = 'unchanged'
+    setup['src2'].hash_file = None
+    setup['src1'].hash_log_file = 'unchanged'
+    setup['src2'].hash_log_file = None
+    bh = setup['bh']
+
+    def patched_hash_work(self):
+        self.source.hash_file = True
+        self.source.hash_log_file = True
+        return self
+
+    monkeypatch.setattr(
+        'backup_helper.work.WorkHash.do_work', patched_hash_work)
+
+    bh.hash_all()
+    assert setup['src1'].hash_file == 'unchanged'
+    assert setup['src1'].hash_log_file == 'unchanged'
 
 
 def test_backup_helper_transfer_all(
