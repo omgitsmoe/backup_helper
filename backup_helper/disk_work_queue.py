@@ -18,6 +18,9 @@ from backup_helper.exceptions import QueueItemsWillNeverBeReady
 logger = logging.getLogger(__name__)
 
 
+# NOTE: don't cache the result, since if the path doesn't exist a parent
+#       path's device id will be used
+# NOTE: might fail if symlink points to an invalid path on windows
 # NOTE: if we have a symlink and we go beyond it, because that device
 # is not connected at the moment, it will still be fine, since
 # the work item will not be able to run or fail to run immediately.
@@ -44,7 +47,6 @@ ResultType = TypeVar('ResultType')
 @dataclasses.dataclass
 class WrappedWork(Generic[WorkType]):
     work: WorkType
-    involved_devices: List[int]
     started: bool = False
 
 
@@ -124,6 +126,9 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         return wrapped
 
     def _get_involved_devices(self, work: WorkType) -> List[int]:
+        """NOTE: the device ids should not be safed in case a parent dir
+        of an involved path is a symlink and the actual target like
+        a mounted device does not exist yet"""
         paths = self._path_getter(work)
         device_ids = [get_device_identifier(p) for p in paths]
         return device_ids
@@ -132,21 +137,23 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         if not self._work_ready_func(work):
             return False, None
 
-        device_ids = self._get_involved_devices(work)
-        if self._any_device_busy(self._busy_devices, device_ids):
+        try:
+            device_ids = self._get_involved_devices(work)
+            if self._any_device_busy(self._busy_devices, device_ids):
+                return False, None
+        except RuntimeError:
             return False, None
-
-        return True, device_ids
+        else:
+            return True, device_ids
 
     def add_work(self, work: Iterable[WorkType]):
         for w in work:
-            device_ids = self._get_involved_devices(w)
-            self._work.append(WrappedWork(w, device_ids))
+            self._work.append(WrappedWork(w))
 
     def _work_done(self, result: WrappedResult[WorkType, ResultType]):
         self._finished.append(result)
         # update devices
-        for dev in result.work.involved_devices:
+        for dev in self._get_involved_devices(result.work.work):
             self._busy_devices[dev] = False
 
         self._running -= 1
@@ -238,6 +245,7 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         while self.workers_running():
             self._wait_till_one_thread_finished_and_update()
 
+    # TODO: run all transfers on a device before any verify
     def start_and_join_all(self) -> Tuple[List[ResultType], List[Tuple[WorkType, str]]]:
         """
         Wait till all work items are finished

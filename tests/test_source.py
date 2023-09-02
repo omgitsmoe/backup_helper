@@ -2,6 +2,8 @@ import pytest
 import os
 import threading
 
+from typing import cast
+
 from unittest.mock import patch, MagicMock, call
 
 from checksum_helper.checksum_helper import ChecksumHelperData
@@ -99,6 +101,8 @@ def test_from_json(json_obj, expected: Source):
     assert s.blocklist == expected.blocklist
 
     for t, expected in zip(s.unique_targets(), json_obj['targets']):
+        cast(Target, t)
+        cast(Target, expected)
         if expected.alias:
             assert s.targets[t.alias] is not None
             assert s.targets[t.alias] is s.targets[t.path]
@@ -248,12 +252,6 @@ def test_transfer_queue_all_queue_passed_in(monkeypatch, setup_source_2targets_1
     assert len(q._work) == 2
     assert q._work[0].work == work.WorkTransfer(src1, src1_target1)
     assert q._work[1].work == work.WorkTransfer(src1, src1_target2)
-    assert q._work[0].involved_devices == [
-        dwq.get_device_identifier(src1.path),
-        dwq.get_device_identifier(src1_target1.path)]
-    assert q._work[0].involved_devices == [
-        dwq.get_device_identifier(src1.path),
-        dwq.get_device_identifier(src1_target2.path)]
 
 
 def test_transfer_queue_all(monkeypatch, setup_source_2targets_1verified):
@@ -265,9 +263,6 @@ def test_transfer_queue_all(monkeypatch, setup_source_2targets_1verified):
 
     assert len(q._work) == 1
     assert q._work[0].work == work.WorkTransfer(src1, src1_target1)
-    assert q._work[0].involved_devices == [
-        dwq.get_device_identifier(src1.path),
-        dwq.get_device_identifier(src1_target1.path)]
 
 
 def test_transfer_all(monkeypatch, setup_source_2targets_1verified):

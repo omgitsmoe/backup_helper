@@ -47,25 +47,21 @@ def test_add_work(monkeypatch) -> None:
     q.add_work(['work0', 'work1', 'work2', 'work3'])
 
     assert q._work[0].work == 'work0'
-    assert q._work[0].involved_devices == [0]
     assert q._work[0].started is False
 
     assert q._work[1].work == 'work1'
-    assert q._work[1].involved_devices == [1, 0]
     assert q._work[1].started is False
 
     assert q._work[2].work == 'work2'
-    assert q._work[2].involved_devices == [3, 0]
     assert q._work[2].started is False
 
     assert q._work[3].work == 'work3'
-    assert q._work[3].involved_devices == [0, 0, 3]
     assert q._work[3].started is False
 
 
 @pytest.fixture
 def setup_disk_work_queue_start_ready(monkeypatch) -> Tuple[
-        dwq.DiskWorkQueue[str, str], Dict[str, bool]]:
+        dwq.DiskWorkQueue[str, str], Dict[str, bool], Dict[str, bool]]:
     # order in terms of affected devices:
     # start work0, work1
     # start work2
@@ -177,17 +173,39 @@ def test_start_ready_devices_uses_work_ready_func(setup_disk_work_queue_start_re
     assert errors == [('work4', 'Error text')]
 
 
+def test_start_ready_devices_handles_faulty_path(setup_disk_work_queue_start_ready, monkeypatch) -> None:
+    q, started, _ = setup_disk_work_queue_start_ready
+
+    bu = dwq.get_device_identifier
+
+    def patched_get_devid(path: str) -> int:
+        if path == 'path1':
+            raise RuntimeError('faulty path')
+        else:
+            return bu(path)
+
+    monkeypatch.setattr(dwq, 'get_device_identifier', patched_get_devid)
+
+    started.clear()
+    q.start_ready_devices()
+    q.join()
+    assert started == {'work1': True}
+    success, errors = q.get_finished_items()
+    assert success == ['work1']
+    assert errors == []
+
+
 def test_get_finished_items():
     q = dwq.DiskWorkQueue(lambda x: x, lambda x: x, lambda x: True)
     # to make sure get_finished_items also includes finished threads that
     # were not yet put into q._finished
     q._thread_done.put(
-        dwq.WrappedResult(dwq.WrappedWork('work2', []), 'work2', None),
+        dwq.WrappedResult(dwq.WrappedWork('work2'), 'work2', None),
     )
     q._finished.extend([
-        dwq.WrappedResult(dwq.WrappedWork('work0', []), 'work0', None),
-        dwq.WrappedResult(dwq.WrappedWork('work1', []), 'work1', None),
-        dwq.WrappedResult(dwq.WrappedWork('work3', []), None, 'work3 Error'),
+        dwq.WrappedResult(dwq.WrappedWork('work0'), 'work0', None),
+        dwq.WrappedResult(dwq.WrappedWork('work1'), 'work1', None),
+        dwq.WrappedResult(dwq.WrappedWork('work3'), None, 'work3 Error'),
     ])
 
     assert q.get_finished_items() == (
@@ -199,8 +217,8 @@ def test_get_finished_items():
 def test_get_finished_items_missing_result():
     q = dwq.DiskWorkQueue(lambda x: x, lambda x: x, lambda x: True)
     q._finished.extend([
-        dwq.WrappedResult(dwq.WrappedWork('work0', []), 'work0', None),
-        dwq.WrappedResult(dwq.WrappedWork('work3', []), None, None),
+        dwq.WrappedResult(dwq.WrappedWork('work0'), 'work0', None),
+        dwq.WrappedResult(dwq.WrappedWork('work3'), None, None),
     ])
 
     with pytest.raises(RuntimeError):
@@ -265,7 +283,7 @@ def test_queue_will_not_block_if_item_never_ready(setup_disk_work_queue_start_re
         while True:
             q.start_ready_devices()
     assert e.value.work_not_ready == [
-        dwq.WrappedWork('work2', [0, 0, 1], False)]
+        dwq.WrappedWork('work2', False)]
     # work2 is left in q, since it might be ready on next start
     success, errors = q.get_finished_items()
     assert started == {'work0': True, 'work1': True,
@@ -275,3 +293,47 @@ def test_queue_will_not_block_if_item_never_ready(setup_disk_work_queue_start_re
     assert q._running == 0
     assert len(q._finished) == len(q._work) - 1
     assert all(not x for x in q._busy_devices.values())
+
+
+def test_queue_does_not_cache_device_ids(monkeypatch) -> None:
+    def get_paths(w):
+        return [w]
+
+    started = {}
+
+    def do_work(w):
+        nonlocal started
+        started[w] = True
+        return w
+
+    def work_ready(w):
+        return True
+
+    # on >=second call get_devid will return a different devid for work item 2
+    # -> if the devid was cached work item 2 will not start
+    call = 0
+
+    def get_devid(p) -> int:
+        nonlocal call
+        if call == 0:
+            if p < 3:
+                return 0
+            else:
+                return 1
+        else:
+            if p < 2:
+                return 0
+            else:
+                return 1
+
+    monkeypatch.setattr(
+        'backup_helper.disk_work_queue.get_device_identifier', get_devid)
+
+    q = dwq.DiskWorkQueue(get_paths, do_work, work_ready, [0, 1, 2, 3])
+
+    q.start_ready_devices()
+    assert started == {0: True, 3: True}
+    call += 1
+
+    q.start_ready_devices()
+    assert started == {0: True, 1: True, 2: True, 3: True}
