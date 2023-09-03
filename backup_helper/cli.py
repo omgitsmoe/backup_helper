@@ -11,6 +11,7 @@ from backup_helper.backup_helper import (
 )
 from backup_helper.exceptions import SourceNotFound, TargetNotFound
 from backup_helper.interactive import BackupHelperInteractive
+from backup_helper import work
 
 
 def configure_logging(log_path):
@@ -210,6 +211,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _cl_stage(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
+    if not os.path.isdir(args.path):
+        print("Error: Path is not a directory:", args.path)
+        return
+
     with load_backup_state_save_always(args.status_file, instance) as bh:
         bh.add_source(Source(
             args.path, args.alias, args.hash_algorithm, None, None, {},
@@ -242,7 +247,8 @@ def _cl_transfer(args: argparse.Namespace, instance: Optional[BackupHelper] = No
             if args.target:
                 bh.get_source(args.source).transfer(args.target)
             else:
-                bh.get_source(args.source).transfer_all()
+                success, errors = bh.get_source(args.source).transfer_all()
+                work.report_results(success, errors)
         else:
             bh.transfer_all()
 
@@ -259,7 +265,9 @@ def _cl_verify_target(args: argparse.Namespace, instance: Optional[BackupHelper]
                     src.get_target(
                         args.target).verify_from(src.hash_file)
             else:
-                bh.get_source(args.source).verify_target_all()
+                success, errors = bh.get_source(
+                    args.source).verify_target_all()
+                work.report_results(success, errors)
         else:
             bh.verify_all()
 

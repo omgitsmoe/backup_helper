@@ -116,9 +116,8 @@ class BackupHelper:
                 f"Source '{source_key}' not found!", source_key)
 
     def hash_all(self) -> None:
-        self._queue.add_work([work.WorkHash(s, log_dir=self._working_dir)
-                              for s in self.unique_sources()
-                              if not s.hash_file])
+        for s in self.unique_sources():
+            s.hash_queue(self._queue, log_dir=self._working_dir)
         success, errors = self._queue.start_and_join_all()
         work.report_results(success, errors)
 
@@ -137,10 +136,8 @@ class BackupHelper:
         work.report_results(success, errors)
 
     def start_all(self) -> None:
-        self._queue.add_work(
-            [work.WorkHash(s, log_dir=self._working_dir)
-             for s in self.unique_sources()])
         for src in self.unique_sources():
+            src.hash_queue(self._queue, log_dir=self._working_dir)
             src.transfer_queue_all(self._queue)
             src.verify_target_queue_all(self._queue)
 

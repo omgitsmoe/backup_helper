@@ -128,3 +128,8 @@ def report_results(success: List[WorkType], errors: List[Tuple[WorkType, str]]):
             "Failed to complete the following %d operation(s):\n%s",
             len(errors), "\n".join(f"{w.report_error()}:\n Error: {err}"
                                    for w, err in errors))
+
+    if not success and not errors:
+        logger.info("No operations were run maybe you forgot to run a "
+                    "previous step, e.g. sources cannot be transfered until "
+                    "they were hashed!")

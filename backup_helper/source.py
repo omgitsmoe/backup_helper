@@ -175,6 +175,10 @@ class Source:
                 else:
                     raise HashError("Empty hash file!")
 
+    def hash_queue(self, queue: work.WorkQueue, log_dir: str):
+        if not self.hash_file:
+            queue.add_work([work.WorkHash(self, log_dir=log_dir)])
+
     def _create_fnmatch_ignore(self) -> Optional[
             Callable[[str, List[str]], Iterable[str]]]:
         if not self.blocklist:
