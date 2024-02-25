@@ -27,7 +27,7 @@ dependencies = [
 "Bug Tracker" = "https://github.com/omgitsmoe/backup_helper/issues"
 
 [project.scripts]
-backup_helper = "backup_helper.cli:main"
+backup_helper = "backup_helper.__main__:main"
 
 [project.optional-dependencies]
 test = [
