@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_target.add_argument(
         "--alias", type=str,
         help="Alias that can be used instead of the full path when addressing "
-             "the source in commands")
+             "the target in commands")
     add_target.add_argument(
         "--no-verify", action="store_true",
         help="Don't verify target after transfer")
@@ -216,21 +216,22 @@ def _cl_stage(args: argparse.Namespace, instance: Optional[BackupHelper] = None)
         return
 
     with load_backup_state_save_always(args.status_file, instance) as bh:
-        bh.add_source(Source(
+        src = Source(
             args.path, args.alias, args.hash_algorithm, None, None, {},
-            force_single_hash=args.single_hash))
-        print("Staged:", args.path)
-        if args.alias:
-            print("    with alias:", args.alias)
+            force_single_hash=args.single_hash)
+        bh.add_source(src)
+        print("Staged:", src.path)
+        if src.alias:
+            print("    with alias:", src.alias)
 
 
 def _cl_add_target(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
     with load_backup_state_save_always(args.status_file, instance) as bh:
-        bh.get_source(args.source).add_target(
-            Target(args.path, args.alias, False, not args.no_verify, None))
-        print("Added target", args.path)
-        if args.alias:
-            print("    with alias:", args.alias)
+        target = Target(args.path, args.alias, False, not args.no_verify, None)
+        bh.get_source(args.source).add_target(target)
+        print("Added target", target.path)
+        if target.alias:
+            print("    with alias:", target.alias)
 
 
 def _cl_hash(args: argparse.Namespace, instance: Optional[BackupHelper] = None):
