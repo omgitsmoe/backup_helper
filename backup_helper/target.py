@@ -69,7 +69,7 @@ class Target:
 
     def verify_from(
         self,
-        hash_file_name: str,
+        source_hash_file_path: str,
         log_directory: Optional[str] = None,
         force: bool = False
     ) -> Optional[VerifiedInfo]:
@@ -83,6 +83,9 @@ class Target:
                 "Target %s has not been transfered yet! Nothing to verify!",
                 self.path)
             return None
+
+        # we want to verify self.path/filename
+        hash_file_name = os.path.basename(source_hash_file_path)
 
         if log_directory is None:
             log_directory = self.path

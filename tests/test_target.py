@@ -124,8 +124,9 @@ def test_target_verify_checks_flag(
 
 @patch('backup_helper.source.helpers.setup_thread_log_file')
 @patch('backup_helper.source.ch.logger')
-@patch('checksum_helper.checksum_helper.ChecksumHelperData')
-@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'foohashname'})
+# NOTE: should patch where it's used, not the actual source (so not in checksum_helper itself)
+@patch('backup_helper.target.checksum_helper.ChecksumHelperData')
+@patch('backup_helper.source.helpers.sanitize_filename', **{'return_value': 'bar_foohashname'})
 @patch('backup_helper.source.time.strftime', **{'return_value': 'footime'})
 def test_target_verify(
     patched_strftime,
@@ -137,7 +138,7 @@ def test_target_verify(
 ):
     target = Target('foodir', 'fooalias', True, True, None)
     instance = ChecksumHelperData.return_value
-    log_name = os.path.join(target.path, 'foohashname_vf_footime.log')
+    log_name = os.path.join(target.path, 'bar_foohashname_vf_footime.log')
     expected = VerifiedInfo(5, 2, 1, 1, log_name)
     instance.verify.return_value = (
         [('baz', 'crc')],
@@ -145,8 +146,10 @@ def test_target_verify(
         ['matches', 'foo', 'bar'])
     instance.entries = [1, 2, 3, 4, 5]
 
-    assert target.verify_from('foo:hashname') == expected
+    assert target.verify_from('bar/foo:hashname') == expected
 
+    ChecksumHelperData.assert_called_once_with(
+        None, os.path.join(target.path, "foo:hashname"))
     instance.read.assert_called_once()
     instance.verify.assert_called_once()
     setup_thread_log_file.assert_called_once_with(
