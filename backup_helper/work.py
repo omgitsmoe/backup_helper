@@ -1,6 +1,7 @@
 import dataclasses
 import enum
 import logging
+import os
 
 from typing import Optional, TYPE_CHECKING, Final, List, Union, Tuple, cast
 
@@ -37,6 +38,9 @@ class WorkHash:
     def report_error(self) -> str:
         return f"Error hashing '{self.source.path}'!"
 
+    def __str__(self) -> str:
+        return f"Hashing '{self.source.path}'"
+
 
 @dataclasses.dataclass
 class WorkTransfer:
@@ -65,6 +69,9 @@ class WorkTransfer:
         return ("Error transfering:\n"
                 f"  From: {self.source.path}\n"
                 f"  To: {self.target.path}")
+
+    def __str__(self) -> str:
+        return f"Transferring\n\t'{self.source.path}'\n\t-> '{self.target.path}'"
 
 
 @dataclasses.dataclass
@@ -95,6 +102,14 @@ class WorkVerifyTransfer:
     def report_error(self) -> str:
         return f"Error verifying '{self.target.path}'!"
 
+    def __str__(self) -> str:
+        if not self.source.hash_file:
+            return f"Waiting for source hash file in {self.source.path}"
+
+        hash_file = os.path.join(
+            self.target.path, os.path.basename(self.source.hash_file))
+        return f"Verifying '{hash_file}'"
+
 
 WorkType = Union[WorkHash, WorkTransfer, WorkVerifyTransfer]
 WorkResult = WorkType
@@ -114,7 +129,9 @@ def is_ready(work: WorkType) -> bool:
 
 
 def setup_work_queue(work_items: List[WorkType]) -> WorkQueue:
-    return WorkQueue(get_involved_paths, do_work, is_ready, work_items)
+    return WorkQueue(get_involved_paths, do_work, is_ready,
+                     report_progress_timestep_seconds=60,
+                     work=work_items)
 
 
 def report_results(success: List[WorkType], errors: List[Tuple[WorkType, str]]):

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "backup-helper"
-version = "0.2"
+version = "0.2.1"
 authors = [
   { name="omgitsmoe", email="60219950+omgitsmoe@users.noreply.github.com" },
 ]

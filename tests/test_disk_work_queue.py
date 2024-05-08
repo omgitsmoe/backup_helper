@@ -256,7 +256,8 @@ def test_start_and_join_all_interruptable(_work_done, capsys):
     def work(w: int, *args, **kwargs):
         return w
 
-    q = dwq.DiskWorkQueue(lambda x: ['.'], work, lambda x: True, [1, 2, 3])
+    q = dwq.DiskWorkQueue(
+        lambda x: ['.'], work, lambda x: True, work=[1, 2, 3])
     success, errors = q.start_and_join_all()
     assert success == []
     assert errors == []
@@ -329,7 +330,7 @@ def test_queue_does_not_cache_device_ids(monkeypatch) -> None:
     monkeypatch.setattr(
         'backup_helper.disk_work_queue.get_device_identifier', get_devid)
 
-    q = dwq.DiskWorkQueue(get_paths, do_work, work_ready, [0, 1, 2, 3])
+    q = dwq.DiskWorkQueue(get_paths, do_work, work_ready, work=[0, 1, 2, 3])
 
     q.start_ready_devices()
     assert started == {0: True, 3: True}

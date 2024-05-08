@@ -69,9 +69,13 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
             get_involved_paths: Callable[[WorkType], Iterable[str]],
             worker_func: Callable[[WorkType], ResultType],
             work_ready_func: Callable[[WorkType], bool],
+            report_progress_timestep_seconds=0,
             work: Optional[List[WorkType]] = None):
         """
-        :params work: WorkType
+        :params work: Optional list of work items to initialize the queue with
+        :params report_progress_timestep_seconds:
+            Time frame in seconds, where each work item in progress will
+            be printed. Values <= 0 will result in no progress reports!
         """
         self._path_getter = get_involved_paths
         self._worker_func = self._wrap_worker(worker_func)
@@ -85,6 +89,8 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         self._thread_done: queue.Queue[
             WrappedResult[WorkType, ResultType]] = queue.Queue()
         self._finished: List[WrappedResult[WorkType, ResultType]] = []
+        self._report_progress_timestep_seconds = report_progress_timestep_seconds
+        self._last_report: float = 0
 
         if work:
             self.add_work(work)
@@ -158,13 +164,26 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
 
         self._running -= 1
 
-    def _update_finished_threads(self):
+    def _update_finished_threads(self) -> None:
         """Does nothing when queue is empty"""
 
         while not self._thread_done.empty():
             wrapped_result = self._thread_done.get_nowait()
             self._work_done(wrapped_result)
             self._thread_done.task_done()
+
+    def _report_progress(self) -> None:
+        if self._report_progress_timestep_seconds <= 0:
+            return
+
+        now = time.time()
+        if now - self._last_report < self._report_progress_timestep_seconds:
+            return
+        self._last_report = now
+
+        for work in self._work:
+            if work.started:
+                print("Active job:", work.work)
 
     def _wait_till_one_thread_finished_and_update(self):
         """
@@ -175,6 +194,7 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         # need to use own implementation that uses the original with a timeout
         # and a sleep (the latter is interruptable)
         while True:
+            self._report_progress()
             try:
                 wrapped_result = self._thread_done.get(timeout=0.1)
             except queue.Empty:
