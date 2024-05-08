@@ -94,7 +94,7 @@ class BackupHelper:
     def save_state(self, path: str):
         d = self.to_json()
         with open(path, "w", encoding='utf-8') as f:
-            f.write(json.dumps(d))
+            f.write(json.dumps(d, indent=2))
 
     def add_source(self, source: Source):
         if source.path in self._sources:
