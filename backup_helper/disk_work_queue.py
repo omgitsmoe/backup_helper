@@ -182,7 +182,8 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
         self._last_report = now
 
         for work in self._work:
-            if work.started:
+            if work.started and not any(
+                    work_result.work is work for work_result in self._finished):
                 print("Active job:", work.work)
 
     def _wait_till_one_thread_finished_and_update(self):
