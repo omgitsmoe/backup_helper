@@ -362,3 +362,49 @@ def test_stage_hash_transfer_verify(setup):
         'type': 'BackupHelper',
         'version': 1,
     }
+
+
+def test_verify_detects_errors(setup):
+    (base_path,
+     src1_dir, src1_file_hashes,
+     src2_dir, src2_file_hashes) = setup
+
+    src1_target1_dir = base_path / 'target_sub' / 'src1_target1'
+
+    status_file = str(base_path / 'backup_status.json')
+    cli.main(['stage', '--status-file', status_file,
+             str(src1_dir), '--alias', 'src1_alias'])
+
+    cli.main(['add-target', '--status-file', status_file,
+              'src1_alias', str(src1_target1_dir)])
+
+    cli.main(['hash', '--status-file', status_file])
+    cli.main(['transfer', '--status-file', status_file])
+
+    # create CRC errors
+    file1 = src1_target1_dir / f'{src1_dir.name}_foo.txt'
+    with open(file1, 'w') as f:
+        f.write('fCRCoo')
+
+    file3 = src1_target1_dir / f'{src1_dir.name}_sub' / 'bar'
+    os.remove(file3)
+
+    file4 = (
+        src1_target1_dir / f'{src1_dir.name}_sub' /
+        f'{src1_dir.name}_sub_sub' / f'{src1_dir.name}_baz.txt')
+    with open(file4, 'w') as f:
+        f.write('sub_CRC_baz')
+    # ---
+
+    cli.main(['verify', '--status-file', status_file])
+
+    bh = BackupHelper.load_state(status_file)
+    src1_source = bh.get_source("src1_alias")
+    tgt1 = next(src1_source.unique_targets())
+
+    assert tgt1.verify is True
+    assert tgt1.verified.checked == 4
+    assert tgt1.verified.errors == 3
+    assert tgt1.verified.missing == 1
+    assert tgt1.verified.crc_errors == 2
+    assert tgt1.verified.log_file.startswith(str(src1_target1_dir))
