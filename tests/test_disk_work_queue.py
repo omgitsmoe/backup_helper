@@ -249,9 +249,23 @@ def test_start_and_join_all(setup_disk_work_queue_start_ready):
     assert all(not x for x in q._busy_devices.values())
 
 
-@patch('backup_helper.disk_work_queue.DiskWorkQueue._work_done')
-def test_start_and_join_all_interruptable(_work_done, capsys):
-    _work_done.side_effect = KeyboardInterrupt
+def test_start_and_join_all_interruptable(capsys, monkeypatch):
+    original = dwq.DiskWorkQueue._wait_till_one_thread_finished_and_update
+    triggered = False
+
+    def patched(self):
+        nonlocal triggered
+        if not triggered:
+            triggered = True
+            raise KeyboardInterrupt
+        else:
+            original(self)
+
+    monkeypatch.setattr(
+        'backup_helper.disk_work_queue.DiskWorkQueue'
+        '._wait_till_one_thread_finished_and_update',
+        patched)
+    # -> will trigger ONE KeyboardInterrupt after the first work item is done!
 
     def work(w: int, *args, **kwargs):
         return w
@@ -259,10 +273,9 @@ def test_start_and_join_all_interruptable(_work_done, capsys):
     q = dwq.DiskWorkQueue(
         lambda x: ['.'], work, lambda x: True, work=[1, 2, 3])
     success, errors = q.start_and_join_all()
-    assert success == []
+    assert success == [1]
     assert errors == []
-    # since we replace work_done / or "hit Ctrl+C before it"
-    assert q._running == 1
+    assert q._running == 0
 
     captured = capsys.readouterr()
     assert 'Ctrl+C' in captured.out

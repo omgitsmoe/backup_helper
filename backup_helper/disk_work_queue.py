@@ -288,5 +288,11 @@ class DiskWorkQueue(Generic[WorkType, ResultType]):
             print("Continue after Ctrl+C... Currently running items will be "
                   "finished and can keep the program running. Don't force "
                   "close it!")
+            # NOTE: the running threads would keep the program running, but
+            #       no updates would be performed, since we instantly
+            #       exit here (e.g. to the backup_status.json)
+            #       -> need to wait for running items to finish
+            while self._running > 0:
+                self._wait_till_one_thread_finished_and_update()
 
         return self.get_finished_items()

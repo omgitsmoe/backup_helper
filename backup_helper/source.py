@@ -105,13 +105,15 @@ class Source:
     def add_target(self, target: Target):
         if target.path in self.targets:
             raise TargetAlreadyExists(
-                f"Target '{target.path}' already exists on source '{self.path}'!",
+                f"Target '{target.path}' already exists on source '{
+                    self.path}'!",
                 self.path, target.path)
         self.targets[target.path] = target
         if target.alias:
             if target.alias in self.targets:
                 raise AliasAlreadyExists(
-                    f"Alias '{target.alias}' already exists on source '{self.path}'!",
+                    f"Alias '{target.alias}' already exists on source '{
+                        self.path}'!",
                     target.alias)
             self.targets[target.alias] = target
 
@@ -219,11 +221,16 @@ class Source:
         logger.info("Tranferring %s to %s on thread %d ...",
                     self.path, target.path, threading.get_ident())
 
+        # TODO: support path > 256 on windows?
         try:
             shutil.copytree(self.path, target.path, dirs_exist_ok=True,
                             ignore=self._create_fnmatch_ignore())
         except shutil.Error as e:
             # e.args[0] contains a list of 3-tuples with (src, dst, error)
+            # TODO: retry?
+            # TODO: return errors so they can be reported/logged
+            # TODO: separate log for transfers as well?
+            #       OR TODO no limit on log files
             logger.warning(
                 "Failed to copy the following files when transferring '%s' "
                 "to '%s':\n%s",

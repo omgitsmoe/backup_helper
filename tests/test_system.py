@@ -2,8 +2,10 @@ import pytest
 import pathlib
 import json
 import os
+import time
 
 from typing import List, Tuple
+from unittest.mock import patch
 
 from backup_helper.backup_helper import BackupHelper
 from backup_helper import cli
@@ -408,3 +410,111 @@ def test_verify_detects_errors(setup):
     assert tgt1.verified.missing == 1
     assert tgt1.verified.crc_errors == 2
     assert tgt1.verified.log_file.startswith(str(src1_target1_dir))
+
+
+def test_sigint_from_main_queue_status_file_updated(setup, monkeypatch):
+    from backup_helper import work
+    import _thread
+    original_work = work.WorkHash.do_work
+
+    def patched_work(self: work.WorkHash):
+        # trigger SIGINT in main thread
+        _thread.interrupt_main()
+        time.sleep(2)
+        original_work(self)
+        return self
+
+    monkeypatch.setattr(
+        'backup_helper.source.work.WorkHash.do_work', patched_work)
+
+    (base_path,
+     src1_dir, src1_file_hashes,
+     src2_dir, src2_file_hashes) = setup
+
+    src1_target1_dir = base_path / 'target_sub' / 'src1_target1'
+
+    status_file = str(base_path / 'backup_status.json')
+    cli.main(['stage', '--status-file', status_file,
+             str(src1_dir), '--alias', 'src1_alias',
+              '--hash-algorithm', 'md5'])
+
+    cli.main(['add-target', '--status-file', status_file,
+              'src1_alias', str(src1_target1_dir)])
+
+    bh = BackupHelper.load_state(status_file)
+    src1_source = bh.get_source("src1_alias")
+    assert src1_source.hash_file is None
+    assert src1_source.hash_log_file is None
+
+    cli.main(['hash', '--status-file', status_file])
+
+    bh = BackupHelper.load_state(status_file)
+    src1_source = bh.get_source("src1_alias")
+    assert src1_source.hash_file is not None
+    assert src1_source.hash_log_file is not None
+
+    assert os.path.isfile(src1_source.hash_file)
+    assert os.path.isfile(src1_source.hash_log_file)
+
+    with open(src1_source.hash_file, 'r') as f:
+        actual_src1_file_hashes = f.readlines()
+    hash_file_match(src1_dir, actual_src1_file_hashes, src1_file_hashes)
+
+    # log files written to same dir as backup_status.json
+    assert os.path.isfile(src1_source.hash_log_file)
+    assert pathlib.Path(src1_source.hash_log_file).parent == base_path
+
+
+def test_sigint_from_thread_patched_queue_status_file_updated(setup, monkeypatch):
+    from backup_helper.disk_work_queue import DiskWorkQueue
+
+    original = DiskWorkQueue._wait_till_one_thread_finished_and_update
+    triggered = False
+
+    def patched(self):
+        nonlocal triggered
+        if not triggered:
+            triggered = True
+            raise KeyboardInterrupt
+        else:
+            original(self)
+    monkeypatch.setattr(
+        'backup_helper.disk_work_queue.DiskWorkQueue._wait_till_one_thread_finished_and_update',
+        patched)
+
+    (base_path,
+     src1_dir, src1_file_hashes,
+     src2_dir, src2_file_hashes) = setup
+
+    src1_target1_dir = base_path / 'target_sub' / 'src1_target1'
+
+    status_file = str(base_path / 'backup_status.json')
+    cli.main(['stage', '--status-file', status_file,
+             str(src1_dir), '--alias', 'src1_alias',
+              '--hash-algorithm', 'md5'])
+
+    cli.main(['add-target', '--status-file', status_file,
+              'src1_alias', str(src1_target1_dir)])
+
+    bh = BackupHelper.load_state(status_file)
+    src1_source = bh.get_source("src1_alias")
+    assert src1_source.hash_file is None
+    assert src1_source.hash_log_file is None
+
+    cli.main(['hash', '--status-file', status_file])
+
+    bh = BackupHelper.load_state(status_file)
+    src1_source = bh.get_source("src1_alias")
+    assert src1_source.hash_file is not None
+    assert src1_source.hash_log_file is not None
+
+    assert os.path.isfile(src1_source.hash_file)
+    assert os.path.isfile(src1_source.hash_log_file)
+
+    with open(src1_source.hash_file, 'r') as f:
+        actual_src1_file_hashes = f.readlines()
+    hash_file_match(src1_dir, actual_src1_file_hashes, src1_file_hashes)
+
+    # log files written to same dir as backup_status.json
+    assert os.path.isfile(src1_source.hash_log_file)
+    assert pathlib.Path(src1_source.hash_log_file).parent == base_path
