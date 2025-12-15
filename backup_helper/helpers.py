@@ -4,6 +4,7 @@ import logging
 import logging.handlers
 import threading
 import contextlib
+import signal
 
 from typing import Callable, TypeVar, Optional, Iterator, Iterable, Set
 
@@ -96,3 +97,13 @@ def unique_iterator(to_iter: Iterable[T], key: str = 'path') -> Iterator[T]:
         if ident not in seen:
             yield item
             seen.add(ident)
+
+
+@contextlib.contextmanager
+def block_sigint():
+    """Context-manager, which disables on enter and re-enables on exit"""
+    old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, old)

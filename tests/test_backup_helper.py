@@ -1,4 +1,5 @@
 import pytest
+import signal
 import json
 import os
 
@@ -78,6 +79,44 @@ def test_load_state_saves_crash(read_backup_helper_state_return_written):
     assert written['filename'] == 'test_crash'
     assert json.loads(written['contents'].written) == backup_helper.BackupHelper(
         []).to_json()
+
+
+def test_load_state_saves_crash_on_baseexception(read_backup_helper_state_return_written):
+    written = read_backup_helper_state_return_written
+    try:
+        with backup_helper.load_backup_state("test") as bh:
+            raise BaseException
+    except BaseException:
+        pass
+
+    assert written['filename'] == 'test_crash'
+    assert json.loads(written['contents'].written) == backup_helper.BackupHelper(
+        []).to_json()
+
+
+def test_crash_save_blocks_sigint(monkeypatch, read_backup_helper_state_return_written):
+    written = read_backup_helper_state_return_written
+
+    calls = []
+
+    def fake_signal(sig, handler):
+        calls.append((sig, handler))
+        return "OLD_HANDLER"
+
+    monkeypatch.setattr(signal, "signal", fake_signal)
+
+    try:
+        with backup_helper.load_backup_state("test") as bh:
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    assert calls == [
+        (signal.SIGINT, signal.SIG_IGN),
+        (signal.SIGINT, "OLD_HANDLER"),
+    ]
+
+    assert written["filename"] == "test_crash"
 
 
 def test_load_state_no_save_without_crash(read_backup_helper_state_return_written):
@@ -518,8 +557,10 @@ def test_backup_helper_transfer_all_exception_does_not_abort(
 
     monkeypatch.setattr('shutil.copytree', raise_err)
     bh.transfer_all()
+
+    assert setup['src1_target2'].transfered is False
     for src in bh.unique_sources():
-        assert setup['src1_target2'].transfered is False
         assert all(
             not t.transfered if t.path == err_target_path else t.transfered
             for t in src.unique_targets())
+

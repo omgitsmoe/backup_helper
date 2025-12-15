@@ -18,6 +18,7 @@ from backup_helper.exceptions import (
 )
 from backup_helper.source import Source
 from backup_helper.target import Target
+from backup_helper.helpers import block_sigint
 from backup_helper import work
 
 logger = logging.getLogger(__name__)
@@ -178,9 +179,12 @@ def load_backup_state(
 
     try:
         yield bh
-    except Exception:
-        fn, ext = os.path.splitext(path)
-        bh.save_state(helpers.unique_filename(f"{fn}_crash{ext}"))
+    # NOTE: !IMPORTANT! catch BaseException so KeyboardInterrupt etc.
+    #       are also caught to save the crash json as last resort
+    except BaseException:
+        with block_sigint():
+            fn, ext = os.path.splitext(path)
+            bh.save_state(helpers.unique_filename(f"{fn}_crash{ext}"))
         raise
 
 
