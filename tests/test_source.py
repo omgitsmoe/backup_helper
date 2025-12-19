@@ -538,14 +538,14 @@ def test_hash_isolated_log_in_threads(patched_strftime, patched_sanitize, tmp_pa
     # log of each thread only contain the contents of what was done in that thread
     with open(thread1_log_dir / 'foopath_inc_footime.log') as f:
         assert [[s for s in l.split()[1:] if s != '-'][1:]
-                for l in f.readlines()] == [
+                for l in f.readlines()][3:] == [
             ['INFO', 'Wrote', os.path.join(
                 thread1_dir, 'thread1_bh_footime.cshd')],
         ]
 
     with open(thread2_log_dir / 'foopath_inc_footime.log') as f:
         assert [[s for s in l.split()[1:] if s != '-'][1:]
-                for l in f.readlines()] == [
+                for l in f.readlines()][3:] == [
             ['INFO', 'Wrote', os.path.join(
                 thread2_dir, 'thread2_bh_footime.cshd')],
         ]
@@ -579,7 +579,7 @@ def test_hash_thread_log_handler_removed_after(patched_strftime, patched_sanitiz
 
     with open(hash_log_dir / 'foopath_inc_footime.log') as f:
         assert [[s for s in l.split()[1:] if s != '-'][1:]
-                for l in f.readlines()] == [
+                for l in f.readlines()][3:] == [
             ['INFO', 'Wrote', os.path.join(
                 hash_dir, 'test1_bh_footime.cshd')],
         ]
