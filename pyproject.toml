@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "backup-helper"
-version = "0.2.4"
+version = "0.3.0"
 authors = [
   { name="omgitsmoe", email="60219950+omgitsmoe@users.noreply.github.com" },
 ]
@@ -19,7 +19,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    'checksum_helper >=0.2.2,<0.3',
+    'checksum_helper >=0.2.4,<0.3',
 ]
 
 [project.urls]
