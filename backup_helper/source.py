@@ -221,10 +221,28 @@ class Source:
         logger.info("Tranferring %s to %s on thread %d ...",
                     self.path, target.path, threading.get_ident())
 
+        last_width = 0
+
+        def print_status(msg):
+            nonlocal last_width
+            # Move to start, erase previous message
+            print('\r' + ' ' * last_width, end='', flush=True)
+            # Move back to start and print new message
+            print('\r' + msg, end='', flush=True)
+            # Remember the width for next overwrite
+            last_width = len(msg)
+
+        def copy_func(src, dst, *, follow_symlinks=True):
+            relpath = os.path.relpath(src, start=self.path)
+            print_status(f"Copying '{relpath}'")
+
+            shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
+
         # TODO: support path > 256 on windows?
         try:
             shutil.copytree(self.path, target.path, dirs_exist_ok=True,
-                            ignore=self._create_fnmatch_ignore())
+                            ignore=self._create_fnmatch_ignore(),
+                            copy_function=copy_func)
         except shutil.Error as e:
             # e.args[0] contains a list of 3-tuples with (src, dst, error)
             # TODO: retry?
